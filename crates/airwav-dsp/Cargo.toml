@@ -1,0 +1,23 @@
+[package]
+name = "airwav-dsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+airwav-core.workspace = true
+rustfft.workspace = true
+num-complex.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+proptest.workspace = true
+
+[[bench]]
+name = "pipeline"
+harness = false

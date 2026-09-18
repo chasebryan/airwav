@@ -1,0 +1,19 @@
+[package]
+name = "airwav-v4"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+airwav-core.workspace = true
+libloading.workspace = true
+crossbeam-channel.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

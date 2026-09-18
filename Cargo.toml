@@ -1,0 +1,46 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+rust-version = "1.98"
+
+[workspace.dependencies]
+airwav-core = { path = "crates/airwav-core" }
+airwav-v4 = { path = "crates/airwav-v4" }
+airwav-dsp = { path = "crates/airwav-dsp" }
+airwav-record = { path = "crates/airwav-record" }
+airwav-ui = { path = "crates/airwav-ui" }
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+clap = { version = "4", features = ["derive"] }
+crossbeam-channel = "0.5"
+libloading = "0.8"
+rustfft = "6"
+num-complex = "0.4"
+blake3 = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+ratatui = "0.29"
+crossterm = "0.28"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+ctrlc = "3"
+fs2 = "0.4"
+tempfile = "3"
+proptest = "1"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
