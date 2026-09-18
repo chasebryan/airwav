@@ -1,3 +1,8 @@
 /target/
-*.awr/
+**/*.awr/
 *.log
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
