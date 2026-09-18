@@ -119,7 +119,12 @@ def exercise(binary, args, root, fail=False, stall=False, rapid=False):
         state = saved["audio"]
         if not fail and not stall:
             assert state["mode"] == "FM" and state["volume"] == 60, state
-            assert (root / "pcm.raw").stat().st_size > 1024, state
+            pcm = root / "pcm.raw"
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline and (not pcm.exists() or pcm.stat().st_size <= 1024):
+                assert process.poll() is None, (state, transcript[-1500:])
+                pump()
+            assert pcm.exists() and pcm.stat().st_size > 1024, state
             assert math.isfinite(state["rms_dbfs"]) and -120 <= state["rms_dbfs"] <= state["peak_dbfs"] <= 0, state
         os.write(master, b"q")
         deadline = time.monotonic() + 5
