@@ -37,6 +37,7 @@ npm run dev
 - Hann FFT, spectral averaging, local-noise Signal Islands
 - Bounded pre/post-trigger IQ capture and indexed AWR recordings
 - Integrity hashes, crash-safe journals, offline replay
+- Offline AM / mono FM / narrow FM audio, WAV export with evidence metadata, optional playback
 - Native terminal: spectrum, measured waterfall, evidence, five themes, SVG export
 
 ## Architecture
@@ -57,7 +58,7 @@ Six crates, split on execution and trust boundaries — not on product names:
 | --- | --- |
 | `airwav-core` | Validated configuration, receiver identity, IQ blocks, measurements |
 | `airwav-v4` | The only unsafe/FFI code; librtlsdr loading, V4 validation, streaming |
-| `airwav-dsp` | Deterministic FFT, noise estimate, Signal Island history, IQ ring |
+| `airwav-dsp` | Deterministic FFT, noise estimate, Signal Island history, IQ ring, audio demodulation |
 | `airwav-record` | AWR journals, SQLite index, BLAKE3 artifacts, recovery |
 | `airwav-ui` | Ratatui rendering, input, themes, cell-buffer SVG export |
 | `airwav-app` | CLI, workers, terminal lifecycle, replay timing, paths |
@@ -84,6 +85,7 @@ airwav doctor --stream-seconds 30 --counter-test
 airwav config --init
 airwav capture session.awr --seconds 20
 airwav inspect session.awr
+airwav audio session.awr --mode am --output voice.wav --play
 airwav replay session.awr
 airwav replay session.awr --headless
 airwav demo session.awr
@@ -114,7 +116,7 @@ airwav recover interrupted.awr --output recovered.awr
 | Replay . | Step one measurement |
 | Replay [ / ], event buttons | Jump to previous/next captured event |
 
-This milestone implements the core mouse actions above; full context menus, range dragging, frequency locking, and audio monitoring remain on the roadmap.
+This milestone implements the core mouse actions above; full context menus, range dragging, frequency locking, and live audio monitoring remain on the roadmap. Offline AM/FM/NFM audio is available through [`airwav audio`](docs/audio.md), including WAV export and optional system-player playback.
 
 ## Deterministic development fixture
 

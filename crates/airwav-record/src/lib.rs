@@ -5,7 +5,7 @@ use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File, OpenOptions},
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, Read, Seek, Write},
     path::{Component, Path, PathBuf},
     sync::Arc,
 };
@@ -583,14 +583,18 @@ impl Reader {
         )
     }
     pub fn verify_event(&self, event: &Event) -> Result<()> {
+        self.open_event_iq(event).map(|_| ())
+    }
+    /// Verify the event and return the same artifact handle rewound for streaming.
+    pub fn open_event_iq(&self, event: &Event) -> Result<File> {
         validate_snapshot(&event.evidence)?;
         let path = safe_path(&self.root, &event.iq.path)?;
+        let mut file = File::open(path)?;
         ensure!(
-            fs::metadata(&path)?.len() == event.iq.bytes,
+            file.metadata()?.is_file() && file.metadata()?.len() == event.iq.bytes,
             "IQ length mismatch for {}",
             event.id
         );
-        let mut file = File::open(path)?;
         let mut hasher = blake3::Hasher::new();
         let mut bytes = [0u8; 65536];
         loop {
@@ -636,7 +640,8 @@ impl Reader {
             );
         }
 
-        Ok(())
+        file.rewind()?;
+        Ok(file)
     }
     pub fn summary(&self) -> Result<serde_json::Value> {
         let mut observations = 0;
@@ -646,14 +651,18 @@ impl Reader {
         }
         let mut events = 0;
         let mut bytes = 0;
+        let mut event_index = Vec::new();
         for e in self.events()? {
             let e = e?;
             self.verify_event(&e)?;
             events += 1;
             bytes += e.iq.bytes;
+            if event_index.len() < 4096 {
+                event_index.push(serde_json::json!({"id": e.id, "timestamp_ns": e.timestamp_ns, "complete": e.complete, "iq_bytes": e.iq.bytes}));
+            }
         }
         Ok(
-            serde_json::json!({"manifest":self.manifest,"observations":observations,"events":events,"verified_iq_bytes":bytes}),
+            serde_json::json!({"manifest":self.manifest,"observations":observations,"events":events,"verified_iq_bytes":bytes,"event_index":event_index,"event_index_truncated":events > 4096}),
         )
     }
 }

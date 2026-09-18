@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Offline AM, mono broadcast FM and narrow FM audio from verified AWR events, 48 kHz WAV export with embedded provenance, and optional system-player playback.
+- Bounded event ID index in `inspect` for selecting audio captures; deterministic audio fixtures and benchmark.
+
 - Optional `web/` DEMO FIXTURE observer. Synthetic IQ only; not a live receiver.
 
 ## 0.1.0 — capture foundation

@@ -21,3 +21,7 @@ proptest.workspace = true
 [[bench]]
 name = "pipeline"
 harness = false
+
+[[bench]]
+name = "audio"
+harness = false

@@ -1,3 +1,4 @@
+mod audio;
 mod runtime;
 use airwav_core::{Config, now_ns};
 use airwav_record::{Reader, Source};
@@ -77,6 +78,8 @@ enum Commands {
     },
     /// Verify AWR structure and IQ hashes, and report counts.
     Inspect { recording: PathBuf },
+    /// Demodulate a recorded IQ event to a 48 kHz mono WAV (AM, FM or NFM).
+    Audio(audio::AudioArgs),
     /// Export the first measured frame as an SVG terminal screenshot + JSON.
     Export {
         recording: PathBuf,
@@ -217,6 +220,7 @@ fn run() -> Result<()> {
             );
             Ok(())
         }
+        Some(Commands::Audio(args)) => audio::export(&args, &quit),
         Some(Commands::Export {
             recording,
             output,
@@ -283,7 +287,7 @@ fn doctor(
     add(
         "audio",
         "INFO",
-        "Audio monitoring is a later milestone".into(),
+        "Offline AM/FM/NFM WAV export: airwav audio --help; live monitoring awaits hardware acceptance".into(),
     );
     let ffmpeg = std::process::Command::new("ffmpeg")
         .arg("-version")

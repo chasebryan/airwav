@@ -1,4 +1,5 @@
 //! Deterministic baseband measurements. Input is unsigned 8-bit interleaved IQ.
+pub mod audio;
 use airwav_core::{IqBlock, ReceiverConfig, SignalIsland, Spectrum};
 use num_complex::Complex32;
 use rustfft::{Fft, FftPlanner};
