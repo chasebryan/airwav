@@ -1,5 +1,7 @@
 # Validation — 2026-09-18
 
+For the subsequent AM/FM audio increment, see [the development log](development-log.md) and [audio validation scope](audio.md). The results below describe the original capture foundation.
+
 Environment: Linux x86_64, Rust/Cargo 1.98.1. The workspace has no exposed physical V4 and no installed production librtlsdr. Hardware acceptance is **not performed**. Checks used a separate temporary C ABI test library or explicitly labeled synthetic IQ where hardware would otherwise be needed.
 
 ## Automated checks

@@ -18,6 +18,7 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - run: cargo test --workspace --locked
       - run: cargo bench -p airwav-dsp --bench pipeline --locked
+      - run: cargo bench -p airwav-dsp --bench audio --locked
       - run: |
           cargo run --release --example make_fixture -- "$RUNNER_TEMP/demo.awr"
           cargo run --release --bin airwav -- inspect "$RUNNER_TEMP/demo.awr"
