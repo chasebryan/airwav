@@ -1,6 +1,7 @@
 //! AIRWAV's native terminal presentation. Rendering never touches receiver I/O.
 mod theme;
 mod ui;
+mod input;
 mod draw;
 mod panels;
 mod svg;
