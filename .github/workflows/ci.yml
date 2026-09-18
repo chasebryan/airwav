@@ -1,0 +1,24 @@
+name: Rust checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      - run: cargo bench -p airwav-dsp --bench pipeline --locked
+      - run: |
+          cargo run --release --example make_fixture -- "$RUNNER_TEMP/demo.awr"
+          cargo run --release --bin airwav -- inspect "$RUNNER_TEMP/demo.awr"
+          cargo run --release --bin airwav -- replay "$RUNNER_TEMP/demo.awr" --headless
+          cargo run --release --bin airwav -- export "$RUNNER_TEMP/demo.awr" --output "$RUNNER_TEMP/demo.svg"
+          python3 tools/smoke-tui.py target/release/airwav "$RUNNER_TEMP/demo.awr"
