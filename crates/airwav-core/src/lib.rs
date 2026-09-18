@@ -226,6 +226,23 @@ mod tests {
         c.detection_snr_db = 12.;
         c.max_ring_mib = 1;
         assert!(c.validate().is_err());
+        c.max_ring_mib = 128;
+        c.theme = "Neon".into();
+        assert!(c.validate().is_err());
+        c.theme = "Midnight".into();
+        c.receiver.ppm = 201;
+        assert!(c.validate().is_err());
+        c.receiver.ppm = 0;
+        c.receiver.center_hz = 100;
+        assert!(c.validate().is_err());
+        c.receiver.center_hz = 136_000_000;
+        c.queue_blocks = 1;
+        assert!(c.validate().is_err());
+        c.queue_blocks = 16;
+        c.pre_trigger_seconds = 61;
+        assert!(c.validate().is_err());
+        c.pre_trigger_seconds = 5;
+        assert!(c.validate().is_ok());
     }
     #[test]
     fn exact_v4_only() {
