@@ -167,9 +167,22 @@ impl Runtime {
                                 if record_requested && active.load(Ordering::Acquire) {
                                     if store_tx.try_send(StoreCommand::Stop).is_ok(){record_requested=false;capture_until=0;}else{message(&out,"Storage busy; retry stopping the recording");}
                                 }else {
-                                    let path=data.join("sessions").join(format!("{}.awr",now_ns()));std::fs::create_dir_all(path.parent().expect("sessions parent"))?;
-                                    active.store(true,Ordering::Release);
-                                    if store_tx.try_send(StoreCommand::Start(path)).is_ok(){record_requested=true;}else{active.store(false,Ordering::Release);message(&out,"Storage busy; recording did not start");}
+                                    let path = data.join("sessions").join(format!("{}.awr", now_ns()));
+                                    let Some(parent) = path.parent() else {
+                                        message(&out, "Internal error: recording path has no parent");
+                                        continue;
+                                    };
+                                    if let Err(error) = std::fs::create_dir_all(parent) {
+                                        message(&out, format!("Cannot create sessions directory: {error}"));
+                                        continue;
+                                    }
+                                    active.store(true, Ordering::Release);
+                                    if store_tx.try_send(StoreCommand::Start(path)).is_ok() {
+                                        record_requested = true;
+                                    } else {
+                                        active.store(false, Ordering::Release);
+                                        message(&out, "Storage busy; recording did not start");
+                                    }
                                 }
                             },
                             Control::Capture=>{
