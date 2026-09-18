@@ -35,7 +35,7 @@ A real Linux pseudo-terminal at 132 × 42 cells exercised replay, pause, F12 scr
 ## Unverified / incomplete
 
 - Physical V4 sustained capture, RF calibration, USB behavior, actual driver setup, and Fedora/i3 device acceptance.
-- PRISM DDC/resampling/allocation, autonomous MAX-I retuning, aviation decoding, verified identities, audio, and fingerprint memory.
+- PRISM DDC/resampling/allocation, autonomous MAX-I retuning, aviation decoding, verified identities, live audio monitoring, and fingerprint memory. Offline AM/FM/NFM from recorded IQ is implemented separately; see [audio.md](audio.md).
 - PNG/video/cast exports, Director Mode, continuous IQ recording, recording rotation, and complete settings/locking UI.
 
 These are documented milestones, not hidden substitutes or claimed supported features. Follow hardware-acceptance.md before promoting the capture milestone or proceeding to live receiver features.

@@ -1,5 +1,17 @@
 # Development log
 
+## 2026-09-18 — foundation polish (terminal elapsed, doctor storage, CI)
+
+Capture-foundation polish without decoder or hardware-boundary changes:
+
+- Native terminal shows wall-clock elapsed time while metadata recording is active.
+- Doctor storage check aligns with `minimum_free_bytes` fail-closed policy.
+- Help overlay and validation notes distinguish shipped offline AM/FM/NFM from future live audio / decoders.
+- CI concurrency cancel-in-progress; Makefile `check` matches the CI gate set.
+- Safer sessions-directory creation in the DSP worker; broader config validation tests.
+
+No physical V4 acceptance is claimed. UNKNOWN remains the default observation label.
+
 ## 2026-09-18 — recorded AM/FM audio
 
 Priority: support both aviation-oriented AM voice and FM radio audio while retaining explicit measurement provenance and the physical receiver acceptance gate.
