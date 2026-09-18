@@ -102,7 +102,7 @@ pub fn draw(frame: &mut Frame, ui: &mut Ui) {
     waterfall(frame, left[1], ui, &t);
     crate::panels::signals(frame, right[0], ui, &t);
     crate::panels::evidence(frame, right[1], ui, &t);
-    crate::panels::buttons(frame, main[2], ui, &t);
+    crate::chrome::buttons(frame, main[2], ui, &t);
     frame.render_widget(
         Paragraph::new(vec![
             Line::styled(format!("  {}", ui.status), Style::default().fg(t.muted)),
@@ -114,7 +114,7 @@ pub fn draw(frame: &mut Frame, ui: &mut Ui) {
         main[3],
     );
     if let Some(view) = ui.view {
-        crate::panels::overlay(frame, ui, view, &t);
+        crate::chrome::overlay(frame, ui, view, &t);
     }
 }
 fn range(ui: &Ui, len: usize) -> (usize, usize) {
