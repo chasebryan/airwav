@@ -1,5 +1,6 @@
 use crate::monitor::{Monitor, Settings, Status};
-use airwav_core::{Config, IqBlock, Snapshot, now_ns};
+use airwav_core::{Config, IqBlock, ReceiverConfig, Snapshot, now_ns};
+use airwav_dsp::audio::AudioMode;
 use airwav_dsp::{Detector, IqRing, SpectrumEngine};
 use airwav_record::{Source, Writer};
 use airwav_v4::Stream;
@@ -25,7 +26,8 @@ pub struct State {
 pub enum Control {
     Record,
     Capture,
-    Audio(Option<Settings>),
+    AudioToggle(Settings),
+    AudioMode(AudioMode),
     AudioVolume(u8),
     Quit,
 }
@@ -48,6 +50,28 @@ pub struct Runtime {
 fn message(state: &Mutex<State>, value: impl Into<String>) {
     if let Ok(mut state) = state.lock() {
         state.message = value.into();
+    }
+}
+fn set_audio(
+    monitor: &mut Option<Monitor>,
+    settings: Option<Settings>,
+    receiver: &ReceiverConfig,
+    status: &Arc<Mutex<Status>>,
+) {
+    monitor.take();
+    if let Some(settings) = settings {
+        match Monitor::live(settings, receiver, status.clone()) {
+            Ok(started) => *monitor = Some(started),
+            Err(error) => {
+                if let Ok(mut audio) = status.lock() {
+                    audio.active = false;
+                    audio.message = format!("Audio unavailable: {error:#}");
+                }
+            }
+        }
+    } else if let Ok(mut audio) = status.lock() {
+        audio.active = false;
+        audio.message = "Audio off • A Listen".into();
     }
 }
 impl Runtime {
@@ -170,14 +194,15 @@ impl Runtime {
                     while let Ok(command)=commands.try_recv() {
                         match command {
                             Control::Quit=>{quit=true;break;},
-                            Control::Audio(settings)=>{
-                                monitor.take();
-                                if let Some(settings)=settings {
-                                    match Monitor::live(settings,&config.receiver,audio_state.clone()) {
-                                        Ok(started)=>monitor=Some(started),
-                                        Err(error)=>{if let Ok(mut audio)=audio_state.lock(){audio.active=false;audio.message=format!("Audio unavailable: {error:#}");}}
-                                    }
-                                }else if let Ok(mut audio)=audio_state.lock(){audio.active=false;audio.message="Audio off • A Listen".into();}
+                            Control::AudioToggle(settings)=>{
+                                // Apply intent here in queue order, never from a stale UI snapshot.
+                                let next = if monitor.as_ref().is_some_and(Monitor::is_active) { None } else { Some(settings) };
+                                set_audio(&mut monitor,next,&config.receiver,&audio_state);
+                            },
+                            Control::AudioMode(mode)=>{
+                                if let Some(settings)=monitor.as_ref().filter(|m|m.is_active()).map(Monitor::settings) {
+                                    set_audio(&mut monitor,Some(Settings{mode,..settings}),&config.receiver,&audio_state);
+                                }
                             },
                             Control::AudioVolume(volume)=>{if let Some(monitor)=&monitor{monitor.set_volume(volume);}},
                             Control::Record=>{

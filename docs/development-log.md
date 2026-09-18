@@ -1,5 +1,11 @@
 # Development log
 
+## 2026-09-18 — ordered terminal audio controls
+
+Reproduced a live control race in the previous installed build: two rapid Listen presses left AM playing instead of returning to off. The UI was deciding start/stop and mode behavior from a stale status snapshot. It now sends toggle/mode intent to the runtime, which applies commands in queue order using the actual monitor state. Mode changes preserve the locked frequency and latest volume, and a rejected mode command no longer changes the visible selector.
+
+The expanded terminal regression fails on the prior executable and passes on the fixed debug build. It covers rapid toggles and a combined Listen/volume/mode sequence. The smoke harness now waits for measured app state, uses a known mid-band synthetic AM carrier instead of counter-pattern harmonics, paces its PCM sink, bounds screenshot/transcript storage and cleans up its own process group on failure. The stalled-player unit test waits for its sink to be ready before filling the pipe. All 56 workspace tests, formatting and warning-free Clippy pass. The terminal regression passes with the fixed debug executable. No physical receiver or speaker acceptance is claimed.
+
 ## 2026-09-18 — diagnosing terminal silence
 
 Added measured RMS/peak PCM levels and sent/clipped sample counts, plus explicit waiting-for-IQ, silent-PCM, stalled-output and draining messages. A blocked player is detected after one second without conflating the PCM measurement with speaker output. Readouts appear in the terminal header, Diagnostics and F12 metadata. The finite silence floor keeps screenshot JSON valid.

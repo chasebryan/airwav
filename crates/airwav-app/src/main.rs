@@ -541,25 +541,29 @@ fn live(config: Config, data: &Path, quit: &AtomicBool) -> Result<()> {
             match ui.handle(event::read()?) {
                 Action::Quit => break,
                 Action::Pause => ui.paused = !ui.paused,
-                action @ (Action::AudioToggle | Action::AudioMode) => {
-                    let was_active = ui.audio_active;
-                    if action == Action::AudioMode {
-                        ui.audio_mode = (ui.audio_mode + 1) % 3;
-                    }
-                    let setting = if action == Action::AudioToggle && was_active {
-                        Ok(None)
-                    } else if action == Action::AudioMode && !was_active {
-                        continue;
-                    } else {
-                        audio_settings(&mut ui, action == Action::AudioMode).map(Some)
-                    };
-                    match setting {
-                        Ok(settings) => {
-                            if runtime.control.try_send(Control::Audio(settings)).is_err() {
-                                audio_message(&runtime.audio, "Audio control queue busy; retry");
-                            }
+                Action::AudioToggle => match audio_settings(&mut ui, false) {
+                    Ok(settings) => {
+                        if runtime
+                            .control
+                            .try_send(Control::AudioToggle(settings))
+                            .is_err()
+                        {
+                            audio_message(&runtime.audio, "Audio control queue busy; retry");
                         }
-                        Err(e) => audio_message(&runtime.audio, format!("Audio: {e:#}")),
+                    }
+                    Err(e) => audio_message(&runtime.audio, format!("Audio: {e:#}")),
+                },
+                Action::AudioMode => {
+                    let next = (ui.audio_mode + 1) % 3;
+                    let mode = [
+                        airwav_dsp::audio::AudioMode::Am,
+                        airwav_dsp::audio::AudioMode::Fm,
+                        airwav_dsp::audio::AudioMode::Nfm,
+                    ][next];
+                    if runtime.control.try_send(Control::AudioMode(mode)).is_ok() {
+                        ui.audio_mode = next;
+                    } else {
+                        audio_message(&runtime.audio, "Audio control queue busy; retry mode");
                     }
                 }
                 Action::AudioVolume(delta) => {

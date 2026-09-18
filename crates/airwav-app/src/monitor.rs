@@ -194,6 +194,7 @@ enum Input {
     },
 }
 pub struct Monitor {
+    settings: Settings,
     sender: Option<Sender<Arc<IqBlock>>>,
     child: Arc<Mutex<Child>>,
     stop: Arc<AtomicBool>,
@@ -420,6 +421,7 @@ impl Monitor {
             }
         };
         Ok(Self {
+            settings,
             sender,
             child,
             stop,
@@ -441,6 +443,15 @@ impl Monitor {
     }
     pub fn set_volume(&self, volume: u8) {
         self.volume.store(volume.min(100), Ordering::Release);
+    }
+    pub fn settings(&self) -> Settings {
+        Settings {
+            volume: self.volume.load(Ordering::Acquire),
+            ..self.settings
+        }
+    }
+    pub fn is_active(&self) -> bool {
+        self.status.lock().is_ok_and(|status| status.active)
     }
 }
 impl Drop for Monitor {
@@ -559,6 +570,9 @@ mod tests {
         await_condition(|| status.lock().unwrap().pcm_samples > 0);
         assert!(status.lock().unwrap().level.unwrap().rms_dbfs > -40.);
         monitor.set_volume(0);
+        assert_eq!(monitor.settings().volume, 0);
+        assert_eq!(monitor.settings().frequency_hz, settings().frequency_hz);
+        assert_eq!(monitor.settings().mode, AudioMode::Am);
         monitor.push(make(100_000));
         await_condition(|| status.lock().unwrap().discontinuities == 1);
         await_condition(|| status.lock().unwrap().pcm_samples > 1000);
@@ -573,6 +587,8 @@ mod tests {
     }
     #[test]
     fn stalled_player_cannot_block_ingest_or_shutdown() {
+        let directory = tempfile::tempdir().unwrap();
+        let ready = directory.path().join("player-ready");
         let (sender, receiver) = bounded(8);
         let status = Arc::new(Mutex::new(Status::default()));
         let monitor = Monitor::start(
@@ -583,12 +599,13 @@ mod tests {
             Some(sender),
             || {
                 child(
-                    "import fcntl,time\nfcntl.fcntl(0,fcntl.F_SETPIPE_SZ,4096)\ntime.sleep(60)",
-                    &[],
+                    "import fcntl,pathlib,sys,time\nfcntl.fcntl(0,fcntl.F_SETPIPE_SZ,4096)\npathlib.Path(sys.argv[1]).touch()\ntime.sleep(60)",
+                    &[ready.as_os_str()],
                 )
             },
         )
         .unwrap();
+        await_condition(|| ready.exists());
         let start = Instant::now();
         for n in 0..512 {
             monitor.push(Arc::new(IqBlock {
