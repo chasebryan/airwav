@@ -119,7 +119,7 @@ airwav recover interrupted.awr --output recovered.awr
 | Replay . | Step one measurement |
 | Replay [ / ], event buttons | Jump to previous/next captured event |
 
-Audio starts off: select a signal, choose AM/FM/NFM with M, then press A or click Listen. The audio line shows the locked frequency and player errors; mute and listen again to select another signal. Replay listening plays the nearest captured IQ event at normal speed, independently of visual replay controls. See [audio setup and troubleshooting](docs/audio.md). Physical V4/audio acceptance remains outstanding. Full context menus, range dragging, and receiver locking/retuning remain on the roadmap.
+Audio starts off: select a signal, choose AM/FM/NFM with M, then press A or click Listen. The audio line shows the locked frequency, PCM level, missing input and stalled output; Diagnostics includes peak/clipping counts and player errors; mute and listen again to select another signal. Replay listening plays the nearest captured IQ event at normal speed, independently of visual replay controls. See [audio setup and troubleshooting](docs/audio.md). Physical V4/audio acceptance remains outstanding. Full context menus, range dragging, and receiver locking/retuning remain on the roadmap.
 
 ## Deterministic development fixture
 

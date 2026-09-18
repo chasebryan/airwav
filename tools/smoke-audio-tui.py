@@ -6,6 +6,7 @@ into a temporary directory; it is never installed or linked into production.
 """
 import fcntl
 import json
+import math
 import os
 from pathlib import Path
 import pty
@@ -18,13 +19,14 @@ import termios
 import time
 
 
-def exercise(binary, args, root, fail=False):
+def exercise(binary, args, root, fail=False, stall=False):
     root.mkdir()
     bins = root / "bin"
     bins.mkdir()
     player = bins / "pw-cat"
     player.write_text(f"#!{sys.executable}\n" + (
         "import sys\nsys.stderr.write('test-player-device-unavailable\\n')\nsys.exit(3)\n" if fail else
+        "import fcntl,time\nfcntl.fcntl(0,fcntl.F_SETPIPE_SZ,4096)\ntime.sleep(60)\n" if stall else
         "import os\nwith open(os.environ['AIRWAV_TEST_PCM'], 'ab', buffering=0) as f:\n while True:\n  b=os.read(0,4096)\n  if not b: break\n  f.write(b)\n"
     ))
     player.chmod(0o755)
@@ -36,6 +38,8 @@ def exercise(binary, args, root, fail=False):
     process = subprocess.Popen([str(binary), *args], stdin=slave, stdout=slave, stderr=slave, env=env)
     os.close(slave)
     keys = [(0.5, b"a"), (0.95, b"m"), (1.15, b"0"), (1.35, b"\x1b[24~"), (1.6, b"a"), (1.8, b"a"), (2.1, b"q")]
+    if stall:
+        keys = [(0.5, b"a"), (0.8, b"\x1b[24~"), (2.5, b"\x1b[24~"), (2.8, b"q")]
     transcript = bytearray()
     start = time.monotonic()
     try:
@@ -56,14 +60,23 @@ def exercise(binary, args, root, fail=False):
         os.close(master)
     assert code == 0, transcript[-1500:]
     assert b"\x1b[?1049h" in transcript and b"\x1b[?1049l" in transcript
-    metadata = list((root / "screenshots").glob("*.json"))
+    metadata = sorted((root / "screenshots").glob("*.json"))
     assert metadata, "Audio controls prevented screenshot/terminal input"
-    audio = json.loads(metadata[0].read_text())["audio"]
-    assert audio["mode"] == "FM" and audio["volume"] == 60, audio
+    saved = json.loads(metadata[-1].read_text())
+    audio = saved["audio"]
+    assert audio["mode"] == ("AM" if stall else "FM") and audio["volume"] == (50 if stall else 60), audio
     if fail:
         assert not audio["active"] and "test-player-device-unavailable" in audio["status"], audio
+    elif stall:
+        assert audio["active"] and audio["flow"].startswith("Output stalled"), audio
+        assert audio["dropped_samples"] > 0, audio
+        assert len(metadata) == 2, "Stalled output blocked screenshot input"
+        earlier = json.loads(metadata[0].read_text())["observation"]["metrics"]["processed_samples"]
+        assert saved["observation"]["metrics"]["processed_samples"] > earlier, "Stalled output blocked IQ processing"
     else:
         assert (root / "pcm.raw").stat().st_size > 1024, audio
+        assert audio["pcm_samples"] > 512, audio
+        assert math.isfinite(audio["rms_dbfs"]) and -120 <= audio["rms_dbfs"] <= audio["peak_dbfs"] <= 0, audio
     return audio
 
 
@@ -84,7 +97,8 @@ def main():
         library = root / "test-only-driver.so"
         subprocess.run(["cc", "-shared", "-fPIC", "-std=c11", "-D_POSIX_C_SOURCE=200809L", str(stub), "-o", str(library)], check=True)
         exercise(binary, ["--library", str(library)], root / "stream")
-    print("PASS: terminal Listen/Mute, AM/FM mode, volume, PCM delivery, visible player errors, ABI streaming, quit/restoration")
+        exercise(binary, ["--library", str(library)], root / "stalled-stream", stall=True)
+    print("PASS: terminal Listen/Mute, AM/FM mode, volume, PCM delivery/levels, player errors/stalls, ABI streaming, quit/restoration")
 
 
 if __name__ == "__main__":

@@ -11,6 +11,8 @@ Audio starts **off**. In the native AIRWAV terminal:
 
 The audio line displays the listening frequency, output player and any failure. Listening stays on that frequency when the selected island changes; mute and listen again to choose another. Mode changes rebuild the audio channel at the current listening frequency. Volume changes do not restart filters or capture. There is no automatic protocol selection or speech enhancement.
 
+The audio line also shows the RMS level of the latest PCM block sent to the player, after AIRWAV volume. **Silent PCM** means that block contained only zero samples; **Waiting for IQ** means no input has arrived yet or for at least one second; **Output stalled** means a PCM write has been blocked for at least one second. **Output draining** means all event samples have been sent and the player is finishing. Diagnostics shows the last RMS/peak levels, sent sample count and clipping count. Levels use digital full scale, with a finite −120 dBFS floor for silence; they do not measure speaker output, RF strength, or whether a transmission contains speech. These values are also saved in F12 metadata.
+
 For live reception, audio uses the V4 IQ stream in an independent worker with an eight-block queue. A slow player drops audio input instead of blocking RF capture or recording; drops and discontinuities appear under Diagnostics. Demodulator state resets after an IQ gap. Muting, receiver shutdown and quitting kill/reap the player, including when its input pipe has stalled. View pause does not stop audio.
 
 During replay, Listen plays the captured event at or before the current measurement (or the first event when no earlier one exists). The whole event is played at 1×; view pause, single-step, speed and event navigation remain independent. Mute and listen again to play a different event. Metadata-only sessions cannot produce audio. The source remains labeled DEMO FIXTURE for synthetic recordings.
@@ -19,6 +21,7 @@ During replay, Listen plays the captured event at or before the current measurem
 
 - Confirm your build has the **A Listen** button. Rebuild/reinstall after updating the source; an older running executable will stay silent.
 - Press A and inspect the audio line or Diagnostics. Missing players, unavailable default devices, and audio-server failures are displayed instead of silently failing.
+- If the PCM level is nonzero but nothing is audible, check the system output device and mixer. For **Silent PCM**, check AIRWAV volume and channel selection. For **Waiting for IQ**, check receiver/input status. For **Output stalled**, check the audio server and use A to mute/retry; capture and terminal input continue independently.
 - Install one supported output tool: `pw-cat` (PipeWire), `paplay` (PulseAudio/PipeWire compatibility), `aplay` (ALSA), or `ffplay`. The first installed tool is used, with 48 kHz mono raw PCM; an installed but failing player reports its error. Select and unmute the default system output in your desktop sound settings.
 - Ensure AIRWAV volume is above zero, the selected channel is transmitting, and its modulation matches the selected mode. The UI does not retune the receiver just because a mode is selected.
 

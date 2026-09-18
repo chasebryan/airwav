@@ -14,7 +14,7 @@ use std::{
         atomic::{AtomicBool, AtomicU8, Ordering},
     },
     thread::{self, JoinHandle},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 #[derive(Clone, Copy)]
@@ -42,6 +42,62 @@ pub struct Status {
     pub dropped_samples: u64,
     pub discontinuities: u64,
     pub pcm_samples: u64,
+    pub level: Option<PcmLevel>,
+    pub clipped_samples: u64,
+    last_input: Option<Instant>,
+    pending_output: Option<Instant>,
+    draining: bool,
+}
+#[derive(Clone, Copy, Debug)]
+pub struct PcmLevel {
+    pub rms_dbfs: f32,
+    pub peak_dbfs: f32,
+}
+impl PcmLevel {
+    fn measure(pcm: &[i16]) -> Option<Self> {
+        if pcm.is_empty() {
+            return None;
+        }
+        let mut energy = 0.;
+        let mut peak = 0f64;
+        for sample in pcm {
+            let amplitude = *sample as f64 / 32768.;
+            energy += amplitude * amplitude;
+            peak = peak.max(amplitude.abs());
+        }
+        // A finite floor makes digital silence safe to save as JSON.
+        Some(Self {
+            rms_dbfs: (10. * (energy / pcm.len() as f64).max(1e-12).log10()) as f32,
+            peak_dbfs: (20. * peak.max(1e-6).log10()) as f32,
+        })
+    }
+}
+impl Status {
+    pub fn flow(&self, now: Instant) -> String {
+        if !self.active {
+            return String::new();
+        }
+        if self
+            .pending_output
+            .is_some_and(|at| now.saturating_duration_since(at) >= Duration::from_secs(1))
+        {
+            return "Output stalled • check system audio".into();
+        }
+        if self.draining {
+            return "Output draining".into();
+        }
+        if self
+            .last_input
+            .is_none_or(|at| now.saturating_duration_since(at) >= Duration::from_secs(1))
+        {
+            return "Waiting for IQ".into();
+        }
+        match self.level {
+            None => "Preparing audio".into(),
+            Some(level) if level.peak_dbfs <= -120. => "Silent PCM • check channel/volume".into(),
+            Some(level) => format!("PCM {:.0} dBFS", level.rms_dbfs),
+        }
+    }
 }
 fn update(status: &Mutex<Status>, f: impl FnOnce(&mut Status)) {
     if let Ok(mut status) = status.lock() {
@@ -289,6 +345,7 @@ impl Monitor {
                                 block
                             }
                         };
+                        update(&worker_status, |s| s.last_input = Some(Instant::now()));
                         if expected.is_some_and(|next| next != block.first_sample) {
                             dsp = AudioDemodulator::new(config.clone())?;
                             update(&worker_status, |s| s.discontinuities += 1);
@@ -296,15 +353,26 @@ impl Monitor {
                         expected = block.first_sample.checked_add(block.samples());
                         dsp.set_gain(worker_volume.load(Ordering::Acquire) as f32 / 100.)?;
                         pcm.clear();
+                        let previously_clipped = dsp.clipped_samples;
                         dsp.push(&block, &mut pcm)?;
+                        let level = PcmLevel::measure(&pcm);
                         bytes.clear();
                         for sample in &pcm {
                             bytes.extend_from_slice(&sample.to_le_bytes());
                         }
-                        stdin.write_all(&bytes).context("Audio output failed")?;
-                        update(&worker_status, |s| s.pcm_samples += pcm.len() as u64);
+                        if !bytes.is_empty() {
+                            update(&worker_status, |s| s.pending_output = Some(Instant::now()));
+                            stdin.write_all(&bytes).context("Audio output failed")?;
+                            update(&worker_status, |s| {
+                                s.pending_output = None;
+                                s.pcm_samples += pcm.len() as u64;
+                                s.level = level;
+                                s.clipped_samples += dsp.clipped_samples - previously_clipped;
+                            });
+                        }
                     }
                     drop(stdin);
+                    update(&worker_status, |s| s.draining = true);
                     // Let the player drain recorded audio. Stop/mute can always kill it.
                     while !worker_stop.load(Ordering::Acquire) {
                         if let Some(exit) = worker_child
@@ -393,7 +461,48 @@ impl Drop for Monitor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Instant;
+
+    #[test]
+    fn pcm_meter_measures_level_and_handles_silence_without_nonfinite_values() {
+        assert!(PcmLevel::measure(&[]).is_none());
+        let half = PcmLevel::measure(&[16384, -16384, 16384, -16384]).unwrap();
+        assert!((half.rms_dbfs + 6.0206).abs() < 0.001);
+        assert!((half.peak_dbfs + 6.0206).abs() < 0.001);
+        let silence = PcmLevel::measure(&[0; 100]).unwrap();
+        assert_eq!(silence.rms_dbfs, -120.);
+        assert_eq!(silence.peak_dbfs, -120.);
+        let full = PcmLevel::measure(&[i16::MIN, 0]).unwrap();
+        assert_eq!(full.peak_dbfs, 0.);
+        assert!((full.rms_dbfs + 3.0103).abs() < 0.001);
+    }
+    #[test]
+    fn flow_distinguishes_input_silence_output_stalls_and_drain() {
+        let now = Instant::now();
+        let mut status = Status {
+            active: true,
+            ..Status::default()
+        };
+        assert_eq!(status.flow(now), "Waiting for IQ");
+        status.last_input = Some(now);
+        assert_eq!(status.flow(now), "Preparing audio");
+        status.level = PcmLevel::measure(&[0; 10]);
+        assert!(status.flow(now).starts_with("Silent PCM"));
+        status.level = PcmLevel::measure(&[16384; 10]);
+        assert_eq!(status.flow(now), "PCM -6 dBFS");
+        status.pending_output = Some(now);
+        assert_eq!(status.flow(now + Duration::from_millis(999)), "PCM -6 dBFS");
+        assert!(
+            status
+                .flow(now + Duration::from_secs(1))
+                .starts_with("Output stalled")
+        );
+        status.pending_output = None;
+        assert_eq!(status.flow(now + Duration::from_secs(1)), "Waiting for IQ");
+        status.draining = true;
+        assert_eq!(status.flow(now + Duration::from_secs(1)), "Output draining");
+        status.active = false;
+        assert!(status.flow(now).is_empty());
+    }
 
     fn settings() -> Settings {
         Settings {
@@ -448,10 +557,12 @@ mod tests {
         };
         monitor.push(make(0));
         await_condition(|| status.lock().unwrap().pcm_samples > 0);
+        assert!(status.lock().unwrap().level.unwrap().rms_dbfs > -40.);
         monitor.set_volume(0);
         monitor.push(make(100_000));
         await_condition(|| status.lock().unwrap().discontinuities == 1);
         await_condition(|| status.lock().unwrap().pcm_samples > 1000);
+        assert_eq!(status.lock().unwrap().level.unwrap().peak_dbfs, -120.);
         // The test player writes unbuffered PCM, independently of the audio state counter.
         await_condition(|| std::fs::metadata(&output).is_ok_and(|m| m.len() >= 2400));
         drop(monitor);
@@ -470,7 +581,12 @@ mod tests {
             status.clone(),
             Input::Live(receiver),
             Some(sender),
-            || child("import time\ntime.sleep(60)", &[]),
+            || {
+                child(
+                    "import fcntl,time\nfcntl.fcntl(0,fcntl.F_SETPIPE_SZ,4096)\ntime.sleep(60)",
+                    &[],
+                )
+            },
         )
         .unwrap();
         let start = Instant::now();
@@ -484,7 +600,13 @@ mod tests {
         assert!(start.elapsed() < Duration::from_secs(1));
         assert!(status.lock().unwrap().dropped_samples > 0);
         // Allow the writer to fill the pipe, then verify mute/quit kills it before joining.
-        thread::sleep(Duration::from_millis(150));
+        await_condition(|| {
+            status
+                .lock()
+                .unwrap()
+                .flow(Instant::now())
+                .starts_with("Output stalled")
+        });
         let start = Instant::now();
         drop(monitor);
         assert!(start.elapsed() < Duration::from_secs(2));

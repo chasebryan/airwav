@@ -492,6 +492,11 @@ fn sync_audio(ui: &mut Ui, audio: &std::sync::Mutex<monitor::Status>) {
         }
         ui.audio_dropped_samples = audio.dropped_samples;
         ui.audio_discontinuities = audio.discontinuities;
+        ui.audio_flow = audio.flow(Instant::now());
+        ui.audio_pcm_samples = audio.pcm_samples;
+        ui.audio_rms_dbfs = audio.level.map(|level| level.rms_dbfs);
+        ui.audio_peak_dbfs = audio.level.map(|level| level.peak_dbfs);
+        ui.audio_clipped_samples = audio.clipped_samples;
     }
 }
 fn audio_message(audio: &std::sync::Mutex<monitor::Status>, message: impl Into<String>) {
@@ -667,7 +672,7 @@ fn save_view(ui: &mut Ui, path: &Path, width: u16, height: u16) -> Result<()> {
         .write(true)
         .create_new(true)
         .open(metadata)?;
-    file.write_all(&serde_json::to_vec_pretty(&serde_json::json!({"timestamp_ns":now_ns(),"source":ui.source,"selected_signal":ui.selected,"theme":ui.theme.name,"demo":ui.demo,"width":width,"height":height,"observation":ui.snapshot,"audio":{"active":ui.audio_active,"mode":(["AM","FM","NFM"][ui.audio_mode%3]),"volume":ui.audio_volume,"frequency_hz":ui.audio_frequency,"status":ui.audio_status,"dropped_samples":ui.audio_dropped_samples,"discontinuities":ui.audio_discontinuities}}))?)?;
+    file.write_all(&serde_json::to_vec_pretty(&serde_json::json!({"timestamp_ns":now_ns(),"source":ui.source,"selected_signal":ui.selected,"theme":ui.theme.name,"demo":ui.demo,"width":width,"height":height,"observation":ui.snapshot,"audio":{"active":ui.audio_active,"mode":(["AM","FM","NFM"][ui.audio_mode%3]),"volume":ui.audio_volume,"frequency_hz":ui.audio_frequency,"status":ui.audio_status,"flow":ui.audio_flow,"pcm_samples":ui.audio_pcm_samples,"rms_dbfs":ui.audio_rms_dbfs,"peak_dbfs":ui.audio_peak_dbfs,"clipped_samples":ui.audio_clipped_samples,"dropped_samples":ui.audio_dropped_samples,"discontinuities":ui.audio_discontinuities}}))?)?;
     file.sync_all()?;
     Ok(())
 }

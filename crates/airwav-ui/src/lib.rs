@@ -150,6 +150,11 @@ pub struct Ui {
     pub audio_volume: u8,
     pub audio_frequency: Option<u32>,
     pub audio_status: String,
+    pub audio_flow: String,
+    pub audio_pcm_samples: u64,
+    pub audio_rms_dbfs: Option<f32>,
+    pub audio_peak_dbfs: Option<f32>,
+    pub audio_clipped_samples: u64,
     pub audio_dropped_samples: u64,
     pub audio_discontinuities: u64,
     pub replay: bool,
@@ -182,6 +187,11 @@ impl Ui {
             audio_volume: 50,
             audio_frequency: None,
             audio_status: "Audio off • A Listen · M Mode · 9/0 Volume".into(),
+            audio_flow: String::new(),
+            audio_pcm_samples: 0,
+            audio_rms_dbfs: None,
+            audio_peak_dbfs: None,
+            audio_clipped_samples: 0,
             audio_dropped_samples: 0,
             audio_discontinuities: 0,
             replay,
@@ -497,9 +507,14 @@ pub fn draw(frame: &mut Frame, ui: &mut Ui) {
     ]));
     header.push(Line::styled(
         format!(
-            "  {} · VOL {}% · {}",
+            "  {} · VOL {}% · {}{}",
             ["AM", "FM", "NFM"][ui.audio_mode % 3],
             ui.audio_volume,
+            if ui.audio_flow.is_empty() {
+                String::new()
+            } else {
+                format!("{} · ", ui.audio_flow)
+            },
             ui.audio_status
         ),
         Style::default().fg(if ui.audio_active { t.prism } else { t.unknown }),
@@ -848,6 +863,7 @@ fn overlay(frame: &mut Frame, ui: &mut Ui, view: View, t: &Theme) {
                 "Mute then Listen to select another frequency. Mode is manual.".into(),
                 "Replay audio plays the nearest captured IQ event at 1×.".into(),
                 "View pause/speed do not pause or change audio; A mutes.".into(),
+                "PCM level measures player input, not speaker output. D shows details.".into(),
                 "Replay: 1–5 = 0.25× / 0.5× / 1× / 2× / 4× · . step".into(),
                 "[ / ] jump to recorded events · +/- zoom · ←/→ pan".into(),
                 "Mouse: click select · double/right click inspect · wheel zoom".into(),
@@ -879,6 +895,25 @@ fn overlay(frame: &mut Frame, ui: &mut Ui, view: View, t: &Theme) {
             let mut l = vec![
                 format!("Source: {}", ui.source),
                 format!("Audio: {}", ui.audio_status),
+                format!(
+                    "Audio flow: {}",
+                    if ui.audio_flow.is_empty() {
+                        "Stopped"
+                    } else {
+                        &ui.audio_flow
+                    }
+                ),
+                match (ui.audio_rms_dbfs, ui.audio_peak_dbfs) {
+                    (Some(rms), Some(peak)) => {
+                        format!("Last PCM block: RMS {rms:.1} / peak {peak:.1} dBFS")
+                    }
+                    _ => "PCM level: no samples delivered yet".into(),
+                },
+                format!(
+                    "PCM sent: {} samples; clipped: {}",
+                    ui.audio_pcm_samples, ui.audio_clipped_samples
+                ),
+                "Measured after AIRWAV volume; speaker output is not measured.".into(),
                 format!(
                     "Audio queue drops: {} IQ samples; discontinuities: {}",
                     ui.audio_dropped_samples, ui.audio_discontinuities
@@ -1004,6 +1039,29 @@ fn css(c: Color) -> String {
 mod tests {
     use super::*;
     use ratatui::{Terminal, backend::TestBackend};
+    #[test]
+    fn audio_health_is_visible_at_minimum_width_and_in_diagnostics() {
+        let mut ui = Ui::new("Midnight", true, "DEMO FIXTURE", true);
+        ui.audio_active = true;
+        ui.audio_flow = "Output stalled • check system audio".into();
+        ui.audio_status = "AM 136.000000 MHz via test-only-player".into();
+        ui.audio_pcm_samples = 4800;
+        ui.audio_rms_dbfs = Some(-12.);
+        ui.audio_peak_dbfs = Some(-6.);
+        for width in [70, 132] {
+            let mut terminal = Terminal::new(TestBackend::new(width, 42)).unwrap();
+            terminal.draw(|f| draw(f, &mut ui)).unwrap();
+            let svg = to_svg(terminal.backend().buffer());
+            assert!(svg.contains("Output stalled • check system audio"));
+        }
+        ui.view = Some(View::Diagnostics);
+        let mut terminal = Terminal::new(TestBackend::new(132, 42)).unwrap();
+        terminal.draw(|f| draw(f, &mut ui)).unwrap();
+        let svg = to_svg(terminal.backend().buffer());
+        assert!(svg.contains("RMS -12.0 / peak -6.0 dBFS"));
+        assert!(svg.contains("PCM sent: 4800 samples; clipped: 0"));
+        assert!(svg.contains("speaker output is not measured"));
+    }
     #[test]
     fn audio_controls_have_keyboard_and_mouse_actions() {
         let mut ui = Ui::new("Midnight", true, "DEMO FIXTURE", true);

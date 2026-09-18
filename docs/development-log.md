@@ -1,5 +1,11 @@
 # Development log
 
+## 2026-09-18 — diagnosing terminal silence
+
+Added measured RMS/peak PCM levels and sent/clipped sample counts, plus explicit waiting-for-IQ, silent-PCM, stalled-output and draining messages. A blocked player is detected after one second without conflating the PCM measurement with speaker output. Readouts appear in the terminal header, Diagnostics and F12 metadata. The finite silence floor keeps screenshot JSON valid.
+
+All 56 workspace tests, formatting and warning-free Clippy pass. New vectors check exact RMS/peak values, silence and full-scale handling; deterministic status tests cover wait/stall/drain transitions. The terminal test now stalls a separate player process, verifies the visible warning and continued IQ processing across two screenshots, and checks clean shutdown. Physical RF and audible speaker acceptance remain outstanding.
+
 ## 2026-09-18 — terminal listening
 
 The earlier audio command did not connect sound to the main terminal. Added A Listen/Mute, M AM/FM/NFM and 9/0 volume controls for live IQ and recorded-event playback. The header displays the locked audio channel and player failures; Diagnostics reports queue drops and gaps. Audio uses a bounded worker and a system PCM player, with cancellation that kills/reaps the player before joining a blocked writer. Volume changes preserve DSP state. Replay audio plays a whole captured event at 1× independently of measurement timing.
