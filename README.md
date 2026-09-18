@@ -21,6 +21,16 @@ AIRWAV measures what the receiver actually produces. It does not invent aircraft
 
 Run the [hardware acceptance procedure](docs/hardware-acceptance.md) before production receiver work. See the [milestone ledger](docs/roadmap.md) for remaining gates.
 
+## Browser DEMO FIXTURE
+
+[`web/`](web/) is an optional observer of **synthetic IQ** — the same class of fixture the native `make_fixture` example writes. It is **not** a live receiver, does not load librtlsdr, does not talk to USB, and is not a supported production interface. Detected activity stays `UNKNOWN`.
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
 ## What this milestone includes
 
 - Fail-closed V4 hardware boundary (USB identity, R828D, clock checks)

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Optional `web/` DEMO FIXTURE observer. Synthetic IQ only; not a live receiver.
+
 ## 0.1.0 — capture foundation
 
 Working native executable for passive RTL-SDR Blog V4 observation:
