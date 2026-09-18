@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Terminal recording header shows wall-clock elapsed time while metadata recording is active (roadmap phase 3 polish).
+- `airwav doctor` storage check fails closed when free space is below `minimum_free_bytes`, with clearer FAIL guidance.
+- CI concurrency cancel-in-progress and job timeout; `make check` aligned with the full CI gate set.
+- Help overlay distinguishes shipped offline AM/FM/NFM from future live-audio / decoder milestones.
+- Broader config validation unit coverage; recording path creation no longer uses `expect` on the sessions directory.
+
 - Offline AM, mono broadcast FM and narrow FM audio from verified AWR events, 48 kHz WAV export with embedded provenance, and optional system-player playback.
 - Bounded event ID index in `inspect` for selecting audio captures; deterministic audio fixtures and benchmark.
 
