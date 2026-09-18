@@ -4,6 +4,7 @@ mod ui;
 mod input;
 mod draw;
 mod panels;
+mod chrome;
 mod svg;
 
 pub use theme::Theme;
