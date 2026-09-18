@@ -14,7 +14,13 @@ fn main() -> anyhow::Result<()> {
         minimum_free_bytes: 0,
         ..Config::default()
     };
-    let mut writer=Writer::create(&output,&config,Source::DemoFixture{description:"DEMO FIXTURE: deterministic synthetic IQ; three drifting/burst carriers plus seeded noise. No aircraft, protocols, or identities.".into()})?;
+    let mut writer = Writer::create(
+        &output,
+        &config,
+        Source::DemoFixture {
+            description: "DEMO FIXTURE: deterministic synthetic IQ; three drifting/burst carriers plus seeded noise. No aircraft, protocols, or identities.".into(),
+        },
+    )?;
     let mut fft = SpectrumEngine::new(config.fft_size)?;
     let mut detector = Detector::new(config.detection_snr_db, config.receiver.sample_rate);
     let mut ring = IqRing::new(config.ring_bytes());

@@ -1,0 +1,39 @@
+name: Bug report
+description: A measured failure, not a feature request for decoding
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        AIRWAV does not fabricate decoder output. Describe what was measured.
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed
+      description: What the terminal, doctor, or inspect output actually showed.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+      description: What the documented contract says should happen.
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      options:
+        - Replay / fixture
+        - Live V4
+        - CLI only (doctor, inspect, recover)
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Commit or version
+    validations:
+      required: true
