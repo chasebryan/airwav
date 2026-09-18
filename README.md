@@ -101,7 +101,7 @@ airwav recover interrupted.awr --output recovered.awr
 | --- | --- |
 | ↑ / ↓, click signal | Select a Signal Island |
 | Enter / I, double/right click signal | Inspect measured evidence |
-| R, Record button | Start/stop metadata recording |
+| R, Record button | Start/stop metadata recording; header shows elapsed wall time while active |
 | C, Capture IQ button | Preserve available pre-trigger IQ and configured post-roll; recording must be active |
 | Space, Pause button | Pause presentation; live capture continues |
 | + / −, wheel over spectrum | Zoom |
@@ -140,13 +140,14 @@ The default 2.56 MS/s IQ ring holds at most **25.6 MB** for five seconds; post-t
 make check
 ```
 
-Or the expanded form:
+`make check` mirrors CI: fmt, clippy, tests, both DSP benches, fixture inspect/replay/export, and `tools/smoke-tui.py`. Or run steps individually:
 
 ```bash
 cargo fmt --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --locked
-cargo bench -p airwav-dsp --bench pipeline
+cargo bench -p airwav-dsp --bench pipeline --locked
+cargo bench -p airwav-dsp --bench audio --locked
 python3 tools/smoke-tui.py target/release/airwav /tmp/airwav-demo.awr
 ```
 
