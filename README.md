@@ -2,19 +2,61 @@
 
 **Observe first. Conclude second.**
 
-A native Rust terminal for passive RF observation, built exclusively for the **RTL-SDR Blog V4**. No generic SDR backend, browser, cloud service, or transmitter support.
+[![CI](https://github.com/chasebryan/airwav/actions/workflows/ci.yml/badge.svg)](https://github.com/chasebryan/airwav/actions/workflows/ci.yml)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+[![Rust 1.98+](https://img.shields.io/badge/rust-1.98%2B-orange.svg)](rust-toolchain.toml)
 
-## Current milestone
+A native Rust terminal for **passive RF observation**, built exclusively for the **RTL-SDR Blog V4**. No generic SDR backend, browser, cloud service, or transmitter support.
 
-This is a **capture foundation**, not the first production release described in the product specification. It includes a working native executable, a fail-closed V4 hardware boundary, measured spectrum and waterfall, signal activity inspection, bounded pre/post-trigger IQ captures, indexed AWR recordings, integrity checks, offline replay, and SVG terminal screenshots.
+AIRWAV measures what the receiver actually produces. It does not invent aircraft, identities, protocol confidence, decoder output, PRISM channels, or MAX-I scores.
 
-**Hardware acceptance remains outstanding.** Automated tests exercise the driver ABI and streaming lifecycle through a separate test-only C library. They cannot establish reliable reception on a physical V4. Run the [hardware acceptance procedure](docs/hardware-acceptance.md) before proceeding to production receiver features.
+## Status
 
-There are **no supported aviation decoders yet**. Detected activity is `UNKNOWN`; AIRWAV does not fabricate aircraft, identities, protocol confidence, decoder output, PRISM channels, or MAX-I scores. The default is a manual observation window until autonomous scheduling is implemented and verified. See the [milestone ledger](docs/roadmap.md) for the remaining work.
+| | |
+| --- | --- |
+| Milestone | Capture foundation (not a production receiver release) |
+| Hardware | V4 identity/ABI tests exist; **physical V4 acceptance is outstanding** |
+| Decoders | None. Detected activity is `UNKNOWN` |
+| Default window | Manual observation until autonomous scheduling is verified |
+
+Run the [hardware acceptance procedure](docs/hardware-acceptance.md) before production receiver work. See the [milestone ledger](docs/roadmap.md) for remaining gates.
+
+## What this milestone includes
+
+- Fail-closed V4 hardware boundary (USB identity, R828D, clock checks)
+- Hann FFT, spectral averaging, local-noise Signal Islands
+- Bounded pre/post-trigger IQ capture and indexed AWR recordings
+- Integrity hashes, crash-safe journals, offline replay
+- Native terminal: spectrum, measured waterfall, evidence, five themes, SVG export
+
+## Architecture
+
+```mermaid
+flowchart TD
+  V4["RTL-SDR Blog V4 / librtlsdr"] --> RX["Receiver thread<br/>bounded IQ queue"]
+  RX --> DSP["DSP worker<br/>ring + FFT + islands"]
+  DSP --> SNAP["Latest snapshot slot"]
+  SNAP --> UI["Terminal presentation<br/>pause does not stop capture"]
+  DSP --> STQ["Storage queue"]
+  STQ --> STORE["JSONL + SQLite + event IQ"]
+```
+
+Six crates, split on execution and trust boundaries — not on product names:
+
+| Crate | Responsibility |
+| --- | --- |
+| `airwav-core` | Validated configuration, receiver identity, IQ blocks, measurements |
+| `airwav-v4` | The only unsafe/FFI code; librtlsdr loading, V4 validation, streaming |
+| `airwav-dsp` | Deterministic FFT, noise estimate, Signal Island history, IQ ring |
+| `airwav-record` | AWR journals, SQLite index, BLAKE3 artifacts, recovery |
+| `airwav-ui` | Ratatui rendering, input, themes, cell-buffer SVG export |
+| `airwav-app` | CLI, workers, terminal lifecycle, replay timing, paths |
+
+Details: [architecture](docs/architecture.md) · [DSP](docs/dsp.md) · [AWR format](docs/recording-format.md) · [safety](docs/safety.md)
 
 ## Build and run
 
-Linux, Rust 1.98 or newer, and a C compiler are required. The executable builds and replays recordings **without librtlsdr installed**. Live capture loads the V4-capable library at runtime. SQLite is bundled.
+Linux, Rust 1.98 or newer, and a C compiler. The executable **builds and replays recordings without librtlsdr**. Live capture loads the V4-capable library at runtime. SQLite is bundled.
 
 ```bash
 cargo build --release --locked
@@ -23,7 +65,7 @@ airwav doctor
 airwav
 ```
 
-For Fedora/i3, follow [Linux setup](docs/linux.md). Use a truecolor terminal with mouse reporting. The minimum terminal size is 70 × 22 cells.
+For Fedora/i3, follow [Linux setup](docs/linux.md). Use a truecolor terminal with mouse reporting. Minimum size: **70 × 22** cells.
 
 ```bash
 airwav --center-hz 136000000
@@ -39,7 +81,7 @@ airwav export session.awr --output screenshot.svg
 airwav recover interrupted.awr --output recovered.awr
 ```
 
-`doctor --counter-test` captures the receiver's hardware counter, not RF. It checks modulo-256 counter continuity and does not record counter bytes as observations. In normal RF mode librtlsdr does not expose USB loss; AIRWAV reports that limitation separately from measured application queue drops.
+`doctor --counter-test` captures the receiver's hardware counter, not RF. It checks modulo-256 continuity and does not record counter bytes as observations. In normal RF mode librtlsdr does not expose USB loss; AIRWAV reports that limitation separately from measured application queue drops.
 
 ## Terminal controls
 
@@ -76,11 +118,17 @@ airwav export /tmp/airwav-demo.awr --output /tmp/airwav-demo.svg
 
 ## Configuration and data
 
-The defaults use `~/.config/airwav/config.toml` and `~/.local/share/airwav/`; standard XDG variables are respected. `AIRWAV_CONFIG` and `AIRWAV_DATA_DIR` override these paths. `--config` and `--library` select explicit configuration/library paths. Missing configuration uses validated defaults. Unknown TOML fields are errors.
+Defaults: `~/.config/airwav/config.toml` and `~/.local/share/airwav/`. XDG variables are respected. `AIRWAV_CONFIG` and `AIRWAV_DATA_DIR` override these paths. `--config` and `--library` select explicit paths. Missing configuration uses validated defaults. Unknown TOML fields are errors.
 
 The default 2.56 MS/s IQ ring holds at most **25.6 MB** for five seconds; post-trigger capture is ten seconds. It stores raw unsigned 8-bit IQ, not floating-point copies. Recording stops at its configured size/free-space thresholds. It never automatically deletes old captures. At 2.56 MS/s, raw IQ costs 5.12 MB/s; continuous recording is deliberately not enabled in this milestone.
 
 ## Verification
+
+```bash
+make check
+```
+
+Or the expanded form:
 
 ```bash
 cargo fmt --check
@@ -92,6 +140,8 @@ python3 tools/smoke-tui.py target/release/airwav /tmp/airwav-demo.awr
 
 Tests cover strict device identity, driver clock checks, ABI contracts, counter gaps, bounded queue saturation, disconnect/reopen and shutdown races, numerical DSP, property-tested rings, AWR corruption and recovery, database migrations, terminal sizing, and production/fixture separation.
 
-See [architecture](docs/architecture.md), [DSP semantics](docs/dsp.md), [AWR format](docs/recording-format.md), [safety](docs/safety.md), and [validation results](docs/validation.md).
+See [validation results](docs/validation.md) and [CONTRIBUTING](CONTRIBUTING.md).
 
-Licensed under the repository's existing [GNU AGPL v3](LICENSE). The user-installed RTL-SDR Blog driver is a separate dependency; AIRWAV does not vendor its implementation.
+## License
+
+[GNU AGPL v3](LICENSE). The user-installed RTL-SDR Blog driver is a separate dependency; AIRWAV does not vendor its implementation.
