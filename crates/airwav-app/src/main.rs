@@ -1,4 +1,5 @@
 mod audio;
+mod monitor;
 mod runtime;
 use airwav_core::{Config, now_ns};
 use airwav_record::{Reader, Source};
@@ -287,7 +288,7 @@ fn doctor(
     add(
         "audio",
         "INFO",
-        "Offline AM/FM/NFM WAV export: airwav audio --help; live monitoring awaits hardware acceptance".into(),
+        "Terminal: A Listen/Mute, M AM/FM/NFM, 9/0 volume; needs pw-cat, paplay, aplay or ffplay. WAV export: airwav audio --help".into(),
     );
     let ffmpeg = std::process::Command::new("ffmpeg")
         .arg("-version")
@@ -457,6 +458,47 @@ impl Drop for Screen {
 fn truecolor() -> bool {
     std::env::var("COLORTERM").is_ok_and(|v| v == "truecolor" || v == "24bit")
 }
+fn audio_settings(ui: &mut Ui, keep_frequency: bool) -> Result<monitor::Settings> {
+    let snapshot = ui
+        .snapshot
+        .as_ref()
+        .context("Waiting for IQ before starting audio")?;
+    let selected = snapshot
+        .islands
+        .get(ui.selected)
+        .map(|s| s.center_hz.round() as u32)
+        .unwrap_or(snapshot.receiver.center_hz);
+    let frequency_hz = if keep_frequency {
+        ui.audio_frequency.unwrap_or(selected)
+    } else {
+        selected
+    };
+    ui.audio_frequency = Some(frequency_hz);
+    Ok(monitor::Settings {
+        frequency_hz,
+        mode: [
+            airwav_dsp::audio::AudioMode::Am,
+            airwav_dsp::audio::AudioMode::Fm,
+            airwav_dsp::audio::AudioMode::Nfm,
+        ][ui.audio_mode % 3],
+        volume: ui.audio_volume,
+    })
+}
+fn sync_audio(ui: &mut Ui, audio: &std::sync::Mutex<monitor::Status>) {
+    if let Ok(audio) = audio.lock() {
+        ui.audio_active = audio.active;
+        if !audio.message.is_empty() {
+            ui.audio_status = audio.message.clone();
+        }
+        ui.audio_dropped_samples = audio.dropped_samples;
+        ui.audio_discontinuities = audio.discontinuities;
+    }
+}
+fn audio_message(audio: &std::sync::Mutex<monitor::Status>, message: impl Into<String>) {
+    if let Ok(mut audio) = audio.lock() {
+        audio.message = message.into();
+    }
+}
 fn live(config: Config, data: &Path, quit: &AtomicBool) -> Result<()> {
     ensure!(
         stdout().is_terminal(),
@@ -484,6 +526,7 @@ fn live(config: Config, data: &Path, quit: &AtomicBool) -> Result<()> {
                 ui.source = "V4 STREAM STOPPED".into();
             }
         }
+        sync_audio(&mut ui, &runtime.audio);
         ui.recording = runtime.recording.load(Ordering::Acquire);
         ui.capture_active = runtime.capturing.load(Ordering::Acquire);
         screen
@@ -493,6 +536,35 @@ fn live(config: Config, data: &Path, quit: &AtomicBool) -> Result<()> {
             match ui.handle(event::read()?) {
                 Action::Quit => break,
                 Action::Pause => ui.paused = !ui.paused,
+                action @ (Action::AudioToggle | Action::AudioMode) => {
+                    let was_active = ui.audio_active;
+                    if action == Action::AudioMode {
+                        ui.audio_mode = (ui.audio_mode + 1) % 3;
+                    }
+                    let setting = if action == Action::AudioToggle && was_active {
+                        Ok(None)
+                    } else if action == Action::AudioMode && !was_active {
+                        continue;
+                    } else {
+                        audio_settings(&mut ui, action == Action::AudioMode).map(Some)
+                    };
+                    match setting {
+                        Ok(settings) => {
+                            if runtime.control.try_send(Control::Audio(settings)).is_err() {
+                                audio_message(&runtime.audio, "Audio control queue busy; retry");
+                            }
+                        }
+                        Err(e) => audio_message(&runtime.audio, format!("Audio: {e:#}")),
+                    }
+                }
+                Action::AudioVolume(delta) => {
+                    let next = (ui.audio_volume as i16 + delta as i16).clamp(0, 100) as u8;
+                    if runtime.control.try_send(Control::AudioVolume(next)).is_ok() {
+                        ui.audio_volume = next;
+                    } else {
+                        audio_message(&runtime.audio, "Audio control queue busy; retry volume");
+                    }
+                }
                 Action::Record => {
                     if runtime.control.try_send(Control::Record).is_err() {
                         ui.status = "Control queue busy".into();
@@ -595,7 +667,7 @@ fn save_view(ui: &mut Ui, path: &Path, width: u16, height: u16) -> Result<()> {
         .write(true)
         .create_new(true)
         .open(metadata)?;
-    file.write_all(&serde_json::to_vec_pretty(&serde_json::json!({"timestamp_ns":now_ns(),"source":ui.source,"selected_signal":ui.selected,"theme":ui.theme.name,"demo":ui.demo,"width":width,"height":height,"observation":ui.snapshot}))?)?;
+    file.write_all(&serde_json::to_vec_pretty(&serde_json::json!({"timestamp_ns":now_ns(),"source":ui.source,"selected_signal":ui.selected,"theme":ui.theme.name,"demo":ui.demo,"width":width,"height":height,"observation":ui.snapshot,"audio":{"active":ui.audio_active,"mode":(["AM","FM","NFM"][ui.audio_mode%3]),"volume":ui.audio_volume,"frequency_hz":ui.audio_frequency,"status":ui.audio_status,"dropped_samples":ui.audio_dropped_samples,"discontinuities":ui.audio_discontinuities}}))?)?;
     file.sync_all()?;
     Ok(())
 }
@@ -662,7 +734,11 @@ fn replay(
     let mut screen = Screen::enter()?;
     let mut due = Instant::now();
     let mut current_ns = 0;
+    let audio_state = Arc::new(std::sync::Mutex::new(monitor::Status::default()));
+    let mut audio_monitor: Option<monitor::Monitor> = None;
+    let mut audio_event: Option<String> = None;
     while !quit.load(Ordering::Acquire) {
+        sync_audio(&mut ui, &audio_state);
         if !ui.paused && Instant::now() >= due {
             if let Some(snapshot) = pending.take() {
                 current_ns = snapshot.timestamp_ns;
@@ -688,6 +764,56 @@ fn replay(
         if event::poll(poll_for)? {
             match ui.handle(event::read()?) {
                 Action::Quit => break,
+                action @ (Action::AudioToggle | Action::AudioMode) => {
+                    let was_active = ui.audio_active;
+                    if action == Action::AudioMode {
+                        ui.audio_mode = (ui.audio_mode + 1) % 3;
+                    }
+                    if action == Action::AudioToggle && was_active {
+                        audio_monitor.take();
+                        audio_message(&audio_state, "Audio off • A Listen");
+                        continue;
+                    }
+                    if action == Action::AudioMode && !was_active {
+                        continue;
+                    }
+                    audio_monitor.take();
+                    let started: Result<monitor::Monitor> = (|| {
+                        if action == Action::AudioToggle || audio_event.is_none() {
+                            let sample =
+                                ui.snapshot.as_ref().map_or(0, |s| s.spectrum.first_sample);
+                            let chosen = events
+                                .iter()
+                                .rfind(|e| e.1 <= sample)
+                                .or_else(|| events.first())
+                                .context(
+                                    "No captured IQ events; metadata-only replay has no audio",
+                                )?;
+                            audio_event = Some(chosen.0.clone());
+                        }
+                        let mut selected = None;
+                        for row in reader.events()? {
+                            let event = row?;
+                            if Some(&event.id) == audio_event.as_ref() {
+                                selected = Some(event);
+                                break;
+                            }
+                        }
+                        let event = selected.context("Recorded audio event was not found")?;
+                        let settings = audio_settings(&mut ui, action == Action::AudioMode)?;
+                        monitor::Monitor::recorded(settings, &reader, &event, audio_state.clone())
+                    })();
+                    match started {
+                        Ok(monitor) => audio_monitor = Some(monitor),
+                        Err(e) => audio_message(&audio_state, format!("Audio unavailable: {e:#}")),
+                    }
+                }
+                Action::AudioVolume(delta) => {
+                    ui.audio_volume = (ui.audio_volume as i16 + delta as i16).clamp(0, 100) as u8;
+                    if let Some(monitor) = &audio_monitor {
+                        monitor.set_volume(ui.audio_volume);
+                    }
+                }
                 Action::Pause => {
                     ui.paused = !ui.paused;
                     due = Instant::now();

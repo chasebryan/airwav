@@ -1,5 +1,11 @@
 # Development log
 
+## 2026-09-18 — terminal listening
+
+The earlier audio command did not connect sound to the main terminal. Added A Listen/Mute, M AM/FM/NFM and 9/0 volume controls for live IQ and recorded-event playback. The header displays the locked audio channel and player failures; Diagnostics reports queue drops and gaps. Audio uses a bounded worker and a system PCM player, with cancellation that kills/reaps the player before joining a blocked writer. Volume changes preserve DSP state. Replay audio plays a whole captured event at 1× independently of measurement timing.
+
+Validation: all 53 workspace tests, formatting and warning-free Clippy pass. New coverage includes PCM delivery, volume, gap reset, stalled-player shutdown, error reporting, recorded EOF and keyboard/mouse controls. The optimized release passes both pseudo-terminal suites, including replay and the separate test-only V4 ABI driver, mode/volume changes, visible player failure, screenshot export and terminal restoration. The local PulseAudio-on-PipeWire server accepted and drained a synthetic AM tone using the terminal's raw PCM player arguments. The installed executable was updated after verification, with its previous build backed up. This does not establish audible speaker output or physical V4 reception; those acceptance checks remain unperformed.
+
 ## 2026-09-18 — recorded AM/FM audio
 
 Priority: support both aviation-oriented AM voice and FM radio audio while retaining explicit measurement provenance and the physical receiver acceptance gate.

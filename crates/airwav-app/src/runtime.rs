@@ -1,3 +1,4 @@
+use crate::monitor::{Monitor, Settings, Status};
 use airwav_core::{Config, IqBlock, Snapshot, now_ns};
 use airwav_dsp::{Detector, IqRing, SpectrumEngine};
 use airwav_record::{Source, Writer};
@@ -24,6 +25,8 @@ pub struct State {
 pub enum Control {
     Record,
     Capture,
+    Audio(Option<Settings>),
+    AudioVolume(u8),
     Quit,
 }
 enum StoreCommand {
@@ -38,6 +41,7 @@ pub struct Runtime {
     pub state: Arc<Mutex<State>>,
     pub recording: Arc<AtomicBool>,
     pub capturing: Arc<AtomicBool>,
+    pub audio: Arc<Mutex<Status>>,
     worker: Option<JoinHandle<Result<()>>>,
     stop: Arc<AtomicBool>,
 }
@@ -149,8 +153,11 @@ impl Runtime {
                     }
                     Ok(())
                 })?;
+        let audio = Arc::new(Mutex::new(Status::default()));
+        let audio_state = audio.clone();
         let worker=thread::Builder::new().name("airwav-dsp".into()).spawn(move ||->Result<()> {
             let result:Result<()>= (|| {
+                let mut monitor: Option<Monitor> = None;
                 let mut fft=SpectrumEngine::new(config.fft_size)?;let mut detector=Detector::new(config.detection_snr_db,config.receiver.sample_rate);
                 let mut ring=IqRing::new(config.ring_bytes());let mut latest:Option<Snapshot>=None;let mut next_snapshot=0;let mut processed=0;
                 let mut next_sample=0;let mut capture_until=0;let mut dropped_snapshots=0;let mut dropped_iq=0;let mut record_requested=false;
@@ -163,6 +170,16 @@ impl Runtime {
                     while let Ok(command)=commands.try_recv() {
                         match command {
                             Control::Quit=>{quit=true;break;},
+                            Control::Audio(settings)=>{
+                                monitor.take();
+                                if let Some(settings)=settings {
+                                    match Monitor::live(settings,&config.receiver,audio_state.clone()) {
+                                        Ok(started)=>monitor=Some(started),
+                                        Err(error)=>{if let Ok(mut audio)=audio_state.lock(){audio.active=false;audio.message=format!("Audio unavailable: {error:#}");}}
+                                    }
+                                }else if let Ok(mut audio)=audio_state.lock(){audio.active=false;audio.message="Audio off • A Listen".into();}
+                            },
+                            Control::AudioVolume(volume)=>{if let Some(monitor)=&monitor{monitor.set_volume(volume);}},
                             Control::Record=>{
                                 if record_requested && active.load(Ordering::Acquire) {
                                     if store_tx.try_send(StoreCommand::Stop).is_ok(){record_requested=false;capture_until=0;}else{message(&out,"Storage busy; retry stopping the recording");}
@@ -188,6 +205,7 @@ impl Runtime {
                         Err(crossbeam_channel::RecvTimeoutError::Disconnected)=>{anyhow::bail!("Receiver disconnected; current recording will be finalized with available data");},
                     };
                     if stream.stats.snapshot().malformed_bytes>0{anyhow::bail!("Malformed IQ buffer received; stream stopped to preserve sample alignment");}
+                    if let Some(monitor)=&monitor {monitor.push(block.clone());}
                     next_sample=block.first_sample+block.samples();processed+=block.samples();
                     if capture_until>block.first_sample && active.load(Ordering::Acquire) && store_tx.try_send(StoreCommand::Iq(block.clone())).is_err() {
                         dropped_iq+=block.samples();message(&out,"Storage overload: event IQ block dropped; capture will be marked incomplete");
@@ -208,6 +226,7 @@ impl Runtime {
                 }
                 Ok(())
             })();
+            if let Ok(mut audio)=audio_state.lock(){audio.active=false;audio.message="Audio stopped with receiver".into();}
             let stopped=stream.stop();drop(store_tx);
             let saved=storage.join().map_err(|_|anyhow::anyhow!("storage worker panicked"))?;
             if let Err(error)=&result{message(&out,error.to_string());}
@@ -219,6 +238,7 @@ impl Runtime {
             state,
             recording,
             capturing,
+            audio,
             worker: Some(worker),
             stop,
         })

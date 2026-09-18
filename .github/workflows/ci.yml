@@ -25,3 +25,4 @@ jobs:
           cargo run --release --bin airwav -- replay "$RUNNER_TEMP/demo.awr" --headless
           cargo run --release --bin airwav -- export "$RUNNER_TEMP/demo.awr" --output "$RUNNER_TEMP/demo.svg"
           python3 tools/smoke-tui.py target/release/airwav "$RUNNER_TEMP/demo.awr"
+          python3 tools/smoke-audio-tui.py target/release/airwav "$RUNNER_TEMP/demo.awr"

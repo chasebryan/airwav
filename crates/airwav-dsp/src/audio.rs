@@ -176,6 +176,13 @@ impl AudioDemodulator {
             config,
         })
     }
+    pub fn set_gain(&mut self, gain: f32) -> Result<(), DspError> {
+        if !gain.is_finite() || !(0.0..=20.0).contains(&gain) {
+            return Err(DspError("audio gain must be finite and between 0 and 20"));
+        }
+        self.config.gain = gain;
+        Ok(())
+    }
     pub fn push(&mut self, block: &IqBlock, output: &mut Vec<i16>) -> Result<(), DspError> {
         if !block.bytes.len().is_multiple_of(2) {
             return Err(DspError("audio IQ requires complete I/Q pairs"));

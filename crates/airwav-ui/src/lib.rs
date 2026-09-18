@@ -119,6 +119,9 @@ pub enum Action {
     Theme,
     Demo,
     CycleSpeed,
+    AudioToggle,
+    AudioMode,
+    AudioVolume(i8),
 }
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum View {
@@ -142,6 +145,13 @@ pub struct Ui {
     pub status: String,
     pub recording: bool,
     pub capture_active: bool,
+    pub audio_active: bool,
+    pub audio_mode: usize,
+    pub audio_volume: u8,
+    pub audio_frequency: Option<u32>,
+    pub audio_status: String,
+    pub audio_dropped_samples: u64,
+    pub audio_discontinuities: u64,
     pub replay: bool,
     pub paused: bool,
     pub speed: f64,
@@ -167,6 +177,13 @@ impl Ui {
             status: "Waiting for received IQ…".into(),
             recording: false,
             capture_active: false,
+            audio_active: false,
+            audio_mode: 0,
+            audio_volume: 50,
+            audio_frequency: None,
+            audio_status: "Audio off • A Listen · M Mode · 9/0 Volume".into(),
+            audio_dropped_samples: 0,
+            audio_discontinuities: 0,
             replay,
             paused: false,
             speed: 1.,
@@ -208,6 +225,10 @@ impl Ui {
         match event {
             Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
                 KeyCode::Char('q') => Action::Quit,
+                KeyCode::Char('a') => Action::AudioToggle,
+                KeyCode::Char('m') => Action::AudioMode,
+                KeyCode::Char('9') => Action::AudioVolume(-10),
+                KeyCode::Char('0') => Action::AudioVolume(10),
                 KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::Quit,
                 KeyCode::Esc => {
                     self.view = None;
@@ -474,6 +495,15 @@ pub fn draw(frame: &mut Frame, ui: &mut Ui) {
             Style::default().fg(t.unknown),
         ),
     ]));
+    header.push(Line::styled(
+        format!(
+            "  {} · VOL {}% · {}",
+            ["AM", "FM", "NFM"][ui.audio_mode % 3],
+            ui.audio_volume,
+            ui.audio_status
+        ),
+        Style::default().fg(if ui.audio_active { t.prism } else { t.unknown }),
+    ));
     frame.render_widget(Paragraph::new(header), main[0]);
     let cols = Layout::horizontal([
         Constraint::Percentage(if ui.demo { 67 } else { 62 }),
@@ -713,6 +743,14 @@ fn buttons(frame: &mut Frame, area: Rect, ui: &mut Ui, t: &Theme) {
             ("Step", Action::Step),
             ("◀ Event", Action::PreviousEvent),
             ("Event ▶", Action::NextEvent),
+            (
+                if ui.audio_active {
+                    "A Mute"
+                } else {
+                    "A Listen"
+                },
+                Action::AudioToggle,
+            ),
             ("F12 Save", Action::Screenshot),
             ("Quit", Action::Quit),
         ]
@@ -728,6 +766,14 @@ fn buttons(frame: &mut Frame, area: Rect, ui: &mut Ui, t: &Theme) {
             ),
             ("Capture IQ", Action::Capture),
             ("⏯ View", Action::Pause),
+            (
+                if ui.audio_active {
+                    "A Mute"
+                } else {
+                    "A Listen"
+                },
+                Action::AudioToggle,
+            ),
             ("F12 Save", Action::Screenshot),
             ("Quit", Action::Quit),
         ]
@@ -753,6 +799,9 @@ fn buttons(frame: &mut Frame, area: Rect, ui: &mut Ui, t: &Theme) {
         ("Evidence", Action::Open(View::Evidence)),
         ("Events", Action::Open(View::Events)),
         ("Diagnostics", Action::Open(View::Diagnostics)),
+        ("M Mode", Action::AudioMode),
+        ("9 Vol−", Action::AudioVolume(-10)),
+        ("0 Vol+", Action::AudioVolume(10)),
         ("Theme", Action::Theme),
         ("Demo", Action::Demo),
         ("Help", Action::Open(View::Help)),
@@ -794,6 +843,11 @@ fn overlay(frame: &mut Frame, ui: &mut Ui, view: View, t: &Theme) {
                 "".into(),
                 "↑/↓ select · Enter/I evidence · D diagnostics · E events".into(),
                 "R recording · C pre/post-trigger IQ · Space pause presentation".into(),
+                "A Listen/Mute · M cycles AM/FM/NFM · 9/0 volume down/up".into(),
+                "Listen locks the selected island (or receiver center if none).".into(),
+                "Mute then Listen to select another frequency. Mode is manual.".into(),
+                "Replay audio plays the nearest captured IQ event at 1×.".into(),
+                "View pause/speed do not pause or change audio; A mutes.".into(),
                 "Replay: 1–5 = 0.25× / 0.5× / 1× / 2× / 4× · . step".into(),
                 "[ / ] jump to recorded events · +/- zoom · ←/→ pan".into(),
                 "Mouse: click select · double/right click inspect · wheel zoom".into(),
@@ -806,7 +860,7 @@ fn overlay(frame: &mut Frame, ui: &mut Ui, view: View, t: &Theme) {
                 "SNR is a measurement, not protocol confidence.".into(),
                 "".into(),
                 "This foundation release uses a manual observation window.".into(),
-                "PRISM channel DSP, MAX-I scheduling, decoders, and audio are".into(),
+                "PRISM allocation, MAX-I scheduling and decoders are".into(),
                 "future milestones; no decoder or scheduler score is fabricated.".into(),
                 "A capture preserves available ring IQ and the configured post-roll.".into(),
                 "USB sample loss cannot be measured in normal librtlsdr RF mode.".into(),
@@ -822,7 +876,15 @@ fn overlay(frame: &mut Frame, ui: &mut Ui, view: View, t: &Theme) {
             },
         ),
         View::Diagnostics => {
-            let mut l = vec![format!("Source: {}", ui.source), "".into()];
+            let mut l = vec![
+                format!("Source: {}", ui.source),
+                format!("Audio: {}", ui.audio_status),
+                format!(
+                    "Audio queue drops: {} IQ samples; discontinuities: {}",
+                    ui.audio_dropped_samples, ui.audio_discontinuities
+                ),
+                "".into(),
+            ];
             if let Some(s) = &ui.snapshot {
                 let m = &s.metrics;
                 l.extend([
@@ -942,6 +1004,42 @@ fn css(c: Color) -> String {
 mod tests {
     use super::*;
     use ratatui::{Terminal, backend::TestBackend};
+    #[test]
+    fn audio_controls_have_keyboard_and_mouse_actions() {
+        let mut ui = Ui::new("Midnight", true, "DEMO FIXTURE", true);
+        for (key, expected) in [
+            ('a', Action::AudioToggle),
+            ('m', Action::AudioMode),
+            ('9', Action::AudioVolume(-10)),
+            ('0', Action::AudioVolume(10)),
+        ] {
+            assert_eq!(
+                ui.handle(Event::Key(crossterm::event::KeyEvent::new(
+                    KeyCode::Char(key),
+                    KeyModifiers::NONE
+                ))),
+                expected
+            );
+        }
+        let mut terminal = Terminal::new(TestBackend::new(132, 42)).unwrap();
+        terminal.draw(|f| draw(f, &mut ui)).unwrap();
+        for action in [
+            Action::AudioToggle,
+            Action::AudioMode,
+            Action::AudioVolume(-10),
+            Action::AudioVolume(10),
+        ] {
+            let (rect, _) = ui.areas.buttons.iter().find(|(_, a)| *a == action).unwrap();
+            let event = Event::Mouse(crossterm::event::MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: rect.x + 1,
+                row: rect.y,
+                modifiers: KeyModifiers::NONE,
+            });
+            assert_eq!(ui.handle(event), action);
+        }
+        assert!(!ui.audio_active);
+    }
     #[test]
     fn renders_without_hardware_and_resizes() {
         for (w, h) in [(120, 38), (80, 24), (30, 8)] {

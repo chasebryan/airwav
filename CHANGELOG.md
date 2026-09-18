@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Native terminal Listen/Mute, AM/FM/NFM mode and volume controls for live IQ and recorded events, with independent bounded audio processing and visible player failures.
+
 - Offline AM, mono broadcast FM and narrow FM audio from verified AWR events, 48 kHz WAV export with embedded provenance, and optional system-player playback.
 - Bounded event ID index in `inspect` for selecting audio captures; deterministic audio fixtures and benchmark.
 

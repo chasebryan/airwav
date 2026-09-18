@@ -37,7 +37,7 @@ npm run dev
 - Hann FFT, spectral averaging, local-noise Signal Islands
 - Bounded pre/post-trigger IQ capture and indexed AWR recordings
 - Integrity hashes, crash-safe journals, offline replay
-- Offline AM / mono FM / narrow FM audio, WAV export with evidence metadata, optional playback
+- Terminal AM / mono FM / narrow FM listening, plus offline WAV export with evidence metadata
 - Native terminal: spectrum, measured waterfall, evidence, five themes, SVG export
 
 ## Architecture
@@ -101,6 +101,9 @@ airwav recover interrupted.awr --output recovered.awr
 | --- | --- |
 | ↑ / ↓, click signal | Select a Signal Island |
 | Enter / I, double/right click signal | Inspect measured evidence |
+| A, Listen/Mute button | Listen to the selected island (or receiver center); press again to mute |
+| M, Mode button | Cycle AM / FM / NFM; mode is selected manually |
+| 9 / 0, volume buttons | Lower / raise audio volume (starts at 50%) |
 | R, Record button | Start/stop metadata recording |
 | C, Capture IQ button | Preserve available pre-trigger IQ and configured post-roll; recording must be active |
 | Space, Pause button | Pause presentation; live capture continues |
@@ -116,7 +119,7 @@ airwav recover interrupted.awr --output recovered.awr
 | Replay . | Step one measurement |
 | Replay [ / ], event buttons | Jump to previous/next captured event |
 
-This milestone implements the core mouse actions above; full context menus, range dragging, frequency locking, and live audio monitoring remain on the roadmap. Offline AM/FM/NFM audio is available through [`airwav audio`](docs/audio.md), including WAV export and optional system-player playback.
+Audio starts off: select a signal, choose AM/FM/NFM with M, then press A or click Listen. The audio line shows the locked frequency and player errors; mute and listen again to select another signal. Replay listening plays the nearest captured IQ event at normal speed, independently of visual replay controls. See [audio setup and troubleshooting](docs/audio.md). Physical V4/audio acceptance remains outstanding. Full context menus, range dragging, and receiver locking/retuning remain on the roadmap.
 
 ## Deterministic development fixture
 
