@@ -28,7 +28,7 @@ pub enum Action {
     CycleSpeed,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum View {
     Evidence,
     Diagnostics,
