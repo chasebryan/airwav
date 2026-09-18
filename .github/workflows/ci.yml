@@ -26,3 +26,10 @@ jobs:
           cargo run --release --bin airwav -- export "$RUNNER_TEMP/demo.awr" --output "$RUNNER_TEMP/demo.svg"
           python3 tools/smoke-tui.py target/release/airwav "$RUNNER_TEMP/demo.awr"
           python3 tools/smoke-audio-tui.py target/release/airwav "$RUNNER_TEMP/demo.awr"
+      - name: Save tested Linux binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: airwav-ci-linux-x86_64-${{ github.sha }}
+          path: target/release/airwav
+          if-no-files-found: error
+          retention-days: 7

@@ -2,6 +2,8 @@
 
 ## 2026-09-18 — ordered terminal audio controls
 
+CI now retains the Linux executable that passed both terminal suites for seven days. This lets a memory-constrained development host verify and install the same build without rebuilding it locally. The artifact is a tested CI binary, not a hardware-accepted release; physical receiver and audible speaker checks remain open.
+
 Reproduced a live control race in the previous installed build: two rapid Listen presses left AM playing instead of returning to off. The UI was deciding start/stop and mode behavior from a stale status snapshot. It now sends toggle/mode intent to the runtime, which applies commands in queue order using the actual monitor state. Mode changes preserve the locked frequency and latest volume, and a rejected mode command no longer changes the visible selector.
 
 The expanded terminal regression fails on the prior executable and passes on the fixed debug build. It covers rapid toggles and a combined Listen/volume/mode sequence. The smoke harness now waits for measured app state, uses a known mid-band synthetic AM carrier instead of counter-pattern harmonics, paces its PCM sink, bounds screenshot/transcript storage and cleans up its own process group on failure. The stalled-player unit test waits for its sink to be ready before filling the pipe. All 56 workspace tests, formatting and warning-free Clippy pass. The terminal regression passes with the fixed debug executable. No physical receiver or speaker acceptance is claimed.
