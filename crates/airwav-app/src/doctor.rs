@@ -45,7 +45,7 @@ pub(crate) fn doctor(
     add(
         "audio",
         "INFO",
-        "Terminal: A Listen/Mute, M AM/FM/NFM, 9/0 volume; needs pw-cat, paplay, aplay or ffplay. WAV export: airwav audio --help".into(),
+        "Terminal: A Listen/Mute, M AM/FM/NFM, 9/0 volume; prefers paplay, then pw-cat/aplay/ffplay. WAV export: airwav audio --help".into(),
     );
     let ffmpeg = std::process::Command::new("ffmpeg")
         .arg("-version")

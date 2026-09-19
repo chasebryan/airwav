@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Terminal Listen: `pw-cat` now requests raw s16 PCM (`--raw`). Without it, libsndfile tried to open stdin (`-`) as a sound file, exited, and AIRWAV reported Broken pipe.
+- Terminal Listen: write a streaming WAV header so paplay/pw-cat/aplay accept stdin (libsndfile rejected raw "-" as a sound file), prefer paplay (Pulse and pipewire-pulse), skip pw-cat when no PipeWire socket, fall back to `pw-cat -a` / paplay `--raw` / aplay / ffplay, and drop non-portable `--latency=100ms`. Browser Listen resumes AudioContext on the click/key gesture.
 
 - Live VFO: n/N step, `/` enter MHz, cursor/island/Shift-click retune, gain and PPM while streaming. A retune starts a new DSP/decoder epoch.
 - CRC-gated decoders in `airwav-decode` and the browser observer: Mode S/1090ES (CRC-24), ACARS (odd parity + block checksum), APRS (AX.25 FCS), POCSAG (BCH(31,21)+parity), SAME (`ZCZC` header). Frequency coincidence is not identity.
