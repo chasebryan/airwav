@@ -1,5 +1,25 @@
 # Development log
 
+## 2026-09-18 — ordered terminal audio controls
+
+CI now retains the Linux executable that passed both terminal suites for seven days. This let the memory-constrained development host install the tested build without rebuilding it locally. GitHub run 35382717055 passed; its artifact ZIP matched the published SHA-256 digest, the extracted binary started on this host, and both local terminal suites passed against it. The audio suite now waits for the separate test PCM player to create and fill its output file before asserting delivery; the earlier immediate check raced with player startup under host load. The prior installed executable was backed up, and the verified CI binary (SHA-256 `e135c6d552d1aa8c02c31a68fb01c5af69a48a36710a291937454e630207dcd9`) was installed atomically. The installed binary passed the local audio terminal suite again. These checks use synthetic IQ and a fake PCM sink; physical receiver and audible speaker acceptance remain open.
+
+Reproduced a live control race in the previous installed build: two rapid Listen presses left AM playing instead of returning to off. The UI was deciding start/stop and mode behavior from a stale status snapshot. It now sends toggle/mode intent to the runtime, which applies commands in queue order using the actual monitor state. Mode changes preserve the locked frequency and latest volume, and a rejected mode command no longer changes the visible selector.
+
+The expanded terminal regression fails on the prior executable and passes on the fixed debug build. It covers rapid toggles and a combined Listen/volume/mode sequence. The smoke harness now waits for measured app state, uses a known mid-band synthetic AM carrier instead of counter-pattern harmonics, paces its PCM sink, bounds screenshot/transcript storage and cleans up its own process group on failure. The stalled-player unit test waits for its sink to be ready before filling the pipe. All 56 workspace tests, formatting and warning-free Clippy pass. The terminal regression passes with the fixed debug executable. No physical receiver or speaker acceptance is claimed.
+
+## 2026-09-18 — diagnosing terminal silence
+
+Added measured RMS/peak PCM levels and sent/clipped sample counts, plus explicit waiting-for-IQ, silent-PCM, stalled-output and draining messages. A blocked player is detected after one second without conflating the PCM measurement with speaker output. Readouts appear in the terminal header, Diagnostics and F12 metadata. The finite silence floor keeps screenshot JSON valid.
+
+All 56 workspace tests, formatting and warning-free Clippy pass. New vectors check exact RMS/peak values, silence and full-scale handling; deterministic status tests cover wait/stall/drain transitions. The terminal test now stalls a separate player process, verifies the visible warning and continued IQ processing across two screenshots, and checks clean shutdown. Physical RF and audible speaker acceptance remain outstanding.
+
+## 2026-09-18 — terminal listening
+
+The earlier audio command did not connect sound to the main terminal. Added A Listen/Mute, M AM/FM/NFM and 9/0 volume controls for live IQ and recorded-event playback. The header displays the locked audio channel and player failures; Diagnostics reports queue drops and gaps. Audio uses a bounded worker and a system PCM player, with cancellation that kills/reaps the player before joining a blocked writer. Volume changes preserve DSP state. Replay audio plays a whole captured event at 1× independently of measurement timing.
+
+Validation: all 53 workspace tests, formatting and warning-free Clippy pass. New coverage includes PCM delivery, volume, gap reset, stalled-player shutdown, error reporting, recorded EOF and keyboard/mouse controls. The optimized release passes both pseudo-terminal suites, including replay and the separate test-only V4 ABI driver, mode/volume changes, visible player failure, screenshot export and terminal restoration. The local PulseAudio-on-PipeWire server accepted and drained a synthetic AM tone using the terminal's raw PCM player arguments. The installed executable was updated after verification, with its previous build backed up. This does not establish audible speaker output or physical V4 reception; those acceptance checks remain unperformed.
+
 ## 2026-09-18 — recorded AM/FM audio
 
 Priority: support both aviation-oriented AM voice and FM radio audio while retaining explicit measurement provenance and the physical receiver acceptance gate.
