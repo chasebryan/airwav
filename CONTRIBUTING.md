@@ -45,3 +45,13 @@ cargo run --release --bin airwav -- replay /tmp/airwav-demo.awr --headless
 - Add a test for any measurement, journal, or driver contract you touch.
 - Do not weaken `deny_unknown_fields` on configuration.
 - Describe what was measured, not what you hope the signal is.
+
+## Calm pull requests
+
+Prefer small, reviewable changes over recovery archaeology.
+
+- One logical change per PR when practical.
+- Run `cargo fmt` (and `cargo fmt --check`) before you push.
+- Prefer a clean rebase onto current `main` over a stack of WIP restore commits.
+- If a branch gets noisy, close it and re-land the substance in a fresh branch — that is kindness, not failure.
+- Describe what was measured; keep tone clear and calm in doctor/help text.
