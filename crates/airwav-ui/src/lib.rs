@@ -1,6 +1,5 @@
 //! AIRWAV's native terminal presentation. Rendering never touches receiver I/O.
 use airwav_core::Snapshot;
-use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::{
     layout::Rect,
     style::{Color, Style},
@@ -248,7 +247,7 @@ impl Ui {
             (false, false) => {}
         }
     }
-    fn cycle_theme(&mut self) {
+    pub(crate) fn cycle_theme(&mut self) {
         let names = ["Midnight", "Radar", "Arctic", "Ember", "Studio"];
         let i = names
             .iter()
@@ -259,7 +258,7 @@ impl Ui {
             matches!(self.theme.background, Color::Rgb(..)),
         );
     }
-    fn select(&mut self, delta: i32) {
+    pub(crate) fn select(&mut self, delta: i32) {
         let count = self.snapshot.as_ref().map_or(0, |s| s.islands.len());
         self.selected = (self.selected as i32 + delta)
             .max(0)
