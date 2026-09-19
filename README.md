@@ -104,7 +104,7 @@ airwav recover interrupted.awr --output recovered.awr
 | A, Listen/Mute button | Listen to the selected island (or receiver center); press again to mute |
 | M, Mode button | Cycle AM / FM / NFM; mode is selected manually |
 | 9 / 0, volume buttons | Lower / raise audio volume (starts at 50%) |
-| R, Record button | Start/stop metadata recording; header shows elapsed wall time while active |
+| R, Record button | Start/stop metadata recording |
 | C, Capture IQ button | Preserve available pre-trigger IQ and configured post-roll; recording must be active |
 | Space, Pause button | Pause presentation; live capture continues |
 | + / −, wheel over spectrum | Zoom |
