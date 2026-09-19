@@ -30,41 +30,11 @@ pub struct Theme {
 impl Theme {
     pub fn named(name: &str, truecolor: bool) -> Self {
         let (name, bg, panel, text, accent) = match name {
-            "Radar" => (
-                "Radar",
-                (6, 16, 21),
-                (10, 24, 29),
-                (208, 229, 219),
-                (74, 208, 166),
-            ),
-            "Arctic" => (
-                "Arctic",
-                (222, 230, 239),
-                (234, 240, 246),
-                (23, 40, 56),
-                (8, 100, 167),
-            ),
-            "Ember" => (
-                "Ember",
-                (24, 16, 21),
-                (34, 22, 28),
-                (240, 222, 218),
-                (244, 151, 93),
-            ),
-            "Studio" => (
-                "Studio",
-                (8, 12, 21),
-                (14, 21, 32),
-                (243, 247, 252),
-                (89, 213, 245),
-            ),
-            _ => (
-                "Midnight",
-                (10, 14, 22),
-                (15, 22, 32),
-                (213, 224, 238),
-                (84, 190, 240),
-            ),
+            "Radar" => ("Radar", (6, 16, 21), (10, 24, 29), (208, 229, 219), (74, 208, 166)),
+            "Arctic" => ("Arctic", (222, 230, 239), (234, 240, 246), (23, 40, 56), (8, 100, 167)),
+            "Ember" => ("Ember", (24, 16, 21), (34, 22, 28), (240, 222, 218), (244, 151, 93)),
+            "Studio" => ("Studio", (8, 12, 21), (14, 21, 32), (243, 247, 252), (89, 213, 245)),
+            _ => ("Midnight", (10, 14, 22), (15, 22, 32), (213, 224, 238), (84, 190, 240)),
         };
         let c = |(r, g, b)| color(r, g, b, truecolor);
         Self {
@@ -102,31 +72,11 @@ fn color(r: u8, g: u8, b: u8, truecolor: bool) -> Color {
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
-    None,
-    Quit,
-    Record,
-    Capture,
-    Screenshot,
-    Pause,
-    Step,
-    PreviousEvent,
-    NextEvent,
-    Speed(f64),
-    Open(View),
-    Theme,
-    Demo,
-    CycleSpeed,
-    AudioToggle,
-    AudioMode,
-    AudioVolume(i8),
+    None, Quit, Record, Capture, Screenshot, Pause, Step, PreviousEvent, NextEvent,
+    Speed(f64), Open(View), Theme, Demo, CycleSpeed, AudioToggle, AudioMode, AudioVolume(i8),
 }
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum View {
-    Evidence,
-    Diagnostics,
-    Events,
-    Help,
-}
+pub enum View { Evidence, Diagnostics, Events, Help }
 #[derive(Default, Clone)]
 pub struct HitAreas {
     pub spectrum: Rect,
@@ -141,7 +91,6 @@ pub struct Ui {
     pub source: String,
     pub status: String,
     pub recording: bool,
-    /// Wall-clock start of the active recording session; cleared when recording stops.
     pub(crate) recording_started: Option<Instant>,
     pub capture_active: bool,
     pub audio_active: bool,
@@ -174,56 +123,24 @@ pub struct Ui {
 impl Ui {
     pub fn new(theme: &str, truecolor: bool, source: &str, replay: bool) -> Self {
         Self {
-            snapshot: None,
-            history: VecDeque::new(),
-            theme: Theme::named(theme, truecolor),
-            source: source.into(),
-            status: "Waiting for received IQ…".into(),
-            recording: false,
-            recording_started: None,
-            capture_active: false,
-            audio_active: false,
-            audio_mode: 0,
-            audio_volume: 50,
-            audio_frequency: None,
+            snapshot: None, history: VecDeque::new(), theme: Theme::named(theme, truecolor),
+            source: source.into(), status: "Waiting for received IQ…".into(),
+            recording: false, recording_started: None, capture_active: false,
+            audio_active: false, audio_mode: 0, audio_volume: 50, audio_frequency: None,
             audio_status: "Audio off • A Listen · M Mode · 9/0 Volume".into(),
-            audio_flow: String::new(),
-            audio_pcm_samples: 0,
-            audio_rms_dbfs: None,
-            audio_peak_dbfs: None,
-            audio_clipped_samples: 0,
-            audio_dropped_samples: 0,
-            audio_discontinuities: 0,
-            replay,
-            paused: false,
-            speed: 1.,
-            selected: 0,
-            view: None,
-            demo: false,
-            events: vec![],
-            areas: HitAreas::default(),
-            zoom: 1.,
-            pan: 0.5,
-            last_click: None,
-            hover: None,
-            focused: 0,
-            signal_scroll: 0,
+            audio_flow: String::new(), audio_pcm_samples: 0, audio_rms_dbfs: None,
+            audio_peak_dbfs: None, audio_clipped_samples: 0, audio_dropped_samples: 0,
+            audio_discontinuities: 0, replay, paused: false, speed: 1., selected: 0,
+            view: None, demo: false, events: vec![], areas: HitAreas::default(),
+            zoom: 1., pan: 0.5, last_click: None, hover: None, focused: 0, signal_scroll: 0,
         }
     }
     pub fn update(&mut self, snapshot: Snapshot) {
-        if self
-            .snapshot
-            .as_ref()
-            .is_none_or(|s| s.timestamp_ns != snapshot.timestamp_ns)
-        {
-            self.history
-                .push_front(snapshot.spectrum.power_dbfs.clone());
+        if self.snapshot.as_ref().is_none_or(|s| s.timestamp_ns != snapshot.timestamp_ns) {
+            self.history.push_front(snapshot.spectrum.power_dbfs.clone());
             self.history.truncate(160);
         }
-        if let Some(old) = self
-            .snapshot
-            .as_ref()
-            .and_then(|s| s.islands.get(self.selected))
+        if let Some(old) = self.snapshot.as_ref().and_then(|s| s.islands.get(self.selected))
             && let Some(next) = snapshot.islands.iter().position(|s| s.id == old.id)
         {
             self.selected = next;
@@ -234,44 +151,24 @@ impl Ui {
     /// Track recording state and the wall-clock start used for elapsed display.
     pub fn set_recording(&mut self, active: bool) {
         match (self.recording, active) {
-            (false, true) => {
-                self.recording = true;
-                self.recording_started = Some(Instant::now());
-            }
-            (true, false) => {
-                self.recording = false;
-                self.recording_started = None;
-            }
-            (true, true) => {
-                if self.recording_started.is_none() {
-                    self.recording_started = Some(Instant::now());
-                }
-            }
+            (false, true) => { self.recording = true; self.recording_started = Some(Instant::now()); }
+            (true, false) => { self.recording = false; self.recording_started = None; }
+            (true, true) => { if self.recording_started.is_none() { self.recording_started = Some(Instant::now()); } }
             (false, false) => {}
         }
     }
     include!("handle.inc");
     fn cycle_theme(&mut self) {
         let names = ["Midnight", "Radar", "Arctic", "Ember", "Studio"];
-        let i = names
-            .iter()
-            .position(|n| *n == self.theme.name)
-            .unwrap_or(0);
-        self.theme = Theme::named(
-            names[(i + 1) % 5],
-            matches!(self.theme.background, Color::Rgb(..)),
-        );
+        let i = names.iter().position(|n| *n == self.theme.name).unwrap_or(0);
+        self.theme = Theme::named(names[(i + 1) % 5], matches!(self.theme.background, Color::Rgb(..)));
     }
     fn select(&mut self, delta: i32) {
         let count = self.snapshot.as_ref().map_or(0, |s| s.islands.len());
-        self.selected = (self.selected as i32 + delta)
-            .max(0)
-            .min(count.saturating_sub(1) as i32) as usize;
+        self.selected = (self.selected as i32 + delta).max(0).min(count.saturating_sub(1) as i32) as usize;
     }
 }
-pub(crate) fn contains(r: Rect, p: (u16, u16)) -> bool {
-    r.contains((p.0, p.1).into())
-}
+pub(crate) fn contains(r: Rect, p: (u16, u16)) -> bool { r.contains((p.0, p.1).into()) }
 pub(crate) fn panel<'a>(title: impl Into<Line<'a>>, theme: &Theme, focused: bool) -> Block<'a> {
     Block::default()
         .borders(Borders::ALL)
@@ -284,6 +181,7 @@ pub(crate) fn panel<'a>(title: impl Into<Line<'a>>, theme: &Theme, focused: bool
 
 mod chrome;
 mod draw;
+mod panels;
 mod recording_label;
 mod svg;
 pub use draw::draw;
