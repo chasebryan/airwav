@@ -1,5 +1,11 @@
 # Development log
 
+## 2026-09-18 — simultaneous-channel audio validation
+
+Added an independent synthetic selectivity vector with a desired AM or broadcast-FM channel and an equally strong modulated adjacent channel present at the same time. The test measures preservation of the desired 1 kHz tone and leakage from the adjacent 2 kHz tone without enabling squelch. This closes a limitation of the earlier lone-neighbor test, where squelch could mute the whole block instead of measuring channel-filter leakage. It remains a deterministic software vector, not physical receiver or audible-speaker acceptance.
+
+Validation: prior tip of PR #6 passed formatting, warning-free Clippy, workspace tests, both benchmarks and release/terminal checks. With squelch disabled, AM at 50 kHz spacing and FM at 300 kHz spacing retained more than 75% of the desired-only tone amplitude and kept adjacent-tone amplitude below 10% of the desired tone. These are passing bounds for the two synthetic cases, not a channel-mask specification. Re-landed cleanly onto current main after terminal AM/FM audio merged. Next: cover closer spacings and unequal channel powers, then compare against independent RF recordings when available.
+
 ## 2026-09-18 — ordered terminal audio controls
 
 CI now retains the Linux executable that passed both terminal suites for seven days. This let the memory-constrained development host install the tested build without rebuilding it locally. GitHub run 35382717055 passed; its artifact ZIP matched the published SHA-256 digest, the extracted binary started on this host, and both local terminal suites passed against it. The audio suite now waits for the separate test PCM player to create and fill its output file before asserting delivery; the earlier immediate check raced with player startup under host load. The prior installed executable was backed up, and the verified CI binary (SHA-256 `e135c6d552d1aa8c02c31a68fb01c5af69a48a36710a291937454e630207dcd9`) was installed atomically. The installed binary passed the local audio terminal suite again. These checks use synthetic IQ and a fake PCM sink; physical receiver and audible speaker acceptance remain open.
