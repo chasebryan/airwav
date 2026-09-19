@@ -44,6 +44,7 @@ fn fixture(path: &Path) {
         spectrum,
         islands: vec![],
         metrics: Metrics::default(),
+        frames: vec![],
     };
     writer.append_snapshot(&snapshot).unwrap();
     writer.begin_event(snapshot, &[block], 32768).unwrap();
@@ -190,6 +191,7 @@ fn audio_fixture(path: &Path, mode: &str) {
         spectrum,
         islands: vec![],
         metrics: Metrics::default(),
+        frames: vec![],
     };
     writer.append_snapshot(&snapshot).unwrap();
     let samples = block.samples();

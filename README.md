@@ -14,22 +14,24 @@ AIRWAV measures what the receiver actually produces. It does not invent aircraft
 
 | | |
 | --- | --- |
-| Milestone | Capture foundation (not a production receiver release) |
+| Milestone | Capture + tuner + CRC-gated decoders (not a production ATC/P25 product) |
 | Hardware | V4 identity/ABI tests exist; **physical V4 acceptance is outstanding** |
-| Decoders | None. Detected activity is `UNKNOWN` |
-| Default window | Manual observation until autonomous scheduling is verified |
+| Decoders | Mode S/1090ES, ACARS, APRS, POCSAG, SAME — labels require CRC or parity. Otherwise `UNKNOWN` |
+| Tuner | Live retune of the V4 (and of synthetic/file IQ in the observer) while streaming |
 
 Run the [hardware acceptance procedure](docs/hardware-acceptance.md) before production receiver work. See the [milestone ledger](docs/roadmap.md) for remaining gates.
 
-## Browser DEMO FIXTURE
+## Browser observer
 
-[`web/`](web/) is an optional observer of **synthetic IQ** — the same class of fixture the native `make_fixture` example writes. It is **not** a live receiver, does not load librtlsdr, does not talk to USB, and is not a supported production interface. Detected activity stays `UNKNOWN`.
+[`web/`](web/) is a full observation workstation for **synthetic IQ** and dropped unsigned IQ files. It runs the same tuner, FFT, Signal Islands, and CRC-gated decoders as native AIRWAV. It is **not** a USB RTL-SDR Blog V4, does not load librtlsdr, and does not transmit. Protocol tags still require CRC or parity — frequency coincidence is not identity.
 
 ```bash
 cd web
 npm install
 npm run dev
 ```
+
+Tune with `/` or the VFO, step with `n`/`N`, Shift-click the spectrum to retune, or load a `.cu8` file. Bookmarks arm Mode S (1090), ACARS (131.550), APRS (144.390), SAME (162.400) and POCSAG (433.92).
 
 ## What this milestone includes
 
@@ -38,7 +40,9 @@ npm run dev
 - Bounded pre/post-trigger IQ capture and indexed AWR recordings
 - Integrity hashes, crash-safe journals, offline replay
 - Terminal AM / mono FM / narrow FM listening, plus offline WAV export with evidence metadata
-- Native terminal: spectrum with dB scale and peak hold, measured waterfall, LIVE/FADING islands vs UNKNOWN protocol, evidence, five themes, SVG export
+- Native terminal: spectrum with dB scale and peak hold, measured waterfall, LIVE/FADING islands vs CRC-verified protocol tags, evidence, five themes, SVG export
+- Live VFO: n/N step, `/` enter MHz, cursor/island/Shift-click retune; gain and PPM while streaming. A retune starts a new DSP/decoder epoch
+- CRC-gated decoders: Mode S/ADS-B (CRC-24), ACARS (odd parity + block checksum), APRS (AX.25 FCS), POCSAG (BCH(31,21)+parity), SAME (ZCZC header)
 
 ## Architecture
 
@@ -52,13 +56,14 @@ flowchart TD
   STQ --> STORE["JSONL + SQLite + event IQ"]
 ```
 
-Six crates, split on execution and trust boundaries — not on product names:
+Six crates, plus `airwav-decode` on a trust boundary of its own — not on product names:
 
 | Crate | Responsibility |
 | --- | --- |
 | `airwav-core` | Validated configuration, receiver identity, IQ blocks, measurements |
 | `airwav-v4` | The only unsafe/FFI code; librtlsdr loading, V4 validation, streaming |
 | `airwav-dsp` | Deterministic FFT, noise estimate, Signal Island history, IQ ring, audio demodulation |
+| `airwav-decode` | Mode S, ACARS, APRS, POCSAG, SAME. CRC/parity or silence |
 | `airwav-record` | AWR journals, SQLite index, BLAKE3 artifacts, recovery |
 | `airwav-ui` | Ratatui rendering, input, themes, cell-buffer SVG export |
 | `airwav-app` | CLI, workers, terminal lifecycle, replay timing, paths |
@@ -112,21 +117,28 @@ airwav recover interrupted.awr --output recovered.awr
 | ← / →, Shift+wheel | Pan |
 | Z | Zoom the view to the selected island |
 | K / O / F | Peak hold / sort by SNR / hide fading islands |
-| D / E / G / S / ? | Diagnostics / events / log / settings / help |
+| D / E / V / G / S / ? | Diagnostics / events / frames / log / settings / help |
 | T | Cycle Midnight, Radar, Arctic, Ember, Studio |
 | F10 | Presentation-only Demo Mode |
 | F12, Save button | SVG cell-buffer screenshot with JSON metadata |
 | Q | Stop capture and finalize recording. Recording requires Q twice. |
+| n / N | Step the VFO down / up (default 25 kHz) |
+| / | Enter a center frequency (MHz, kHz, or Hz) |
+| u / U | Retune to the cursor / selected island |
+| , / . | Cycle tuner gain (auto and V4 gain steps) |
+| { / } | PPM −1 / +1 |
+| Shift-click spectrum | Retune the receiver (or observer VFO) to that bin |
+| V | CRC-verified decoder frames |
 | Esc, Close button | Close overlay |
 | Replay 1 / 2 / 3 / 4 / 5 | 0.25× / 0.5× / 1× / 2× / 4× |
 | Replay . | Step one measurement |
 | Replay [ / ], event buttons | Jump to previous/next captured event |
 
-Audio starts off: select a signal, choose AM/FM/NFM with M, then press A or click Listen. The audio line shows the locked frequency, PCM level, missing input and stalled output; Diagnostics includes peak/clipping counts and player errors; mute and listen again to select another signal. Replay listening plays the nearest captured IQ event at normal speed, independently of visual replay controls. See [audio setup and troubleshooting](docs/audio.md). Physical V4/audio acceptance remains outstanding. Full context menus, range dragging, and receiver locking/retuning remain on the roadmap.
+Audio starts off: select a signal, choose AM/FM/NFM with M, then press A or click Listen. The audio line shows the locked frequency, PCM level, missing input and stalled output; Diagnostics includes peak/clipping counts and player errors; mute and listen again to select another signal. Replay listening plays the nearest captured IQ event at normal speed, independently of visual replay controls. See [audio setup and troubleshooting](docs/audio.md). Physical V4/audio acceptance remains outstanding. A protocol tag is CRC/parity evidence, not a classifier score.
 
 ## Deterministic development fixture
 
-The synthetic preview is **explicitly labeled DEMO FIXTURE**, is generated from IQ, and cannot be selected as a live receiver. It contains tones, drift, bursts, and seeded noise. It makes no decoder claims.
+The native `make_fixture` example still writes a recording **explicitly labeled DEMO FIXTURE**. It is generated IQ (tones, drift, bursts, seeded noise), cannot be selected as a live receiver, and is not a decoder test vector. Protocol round-trips live in `airwav-decode` tests and in the browser observer's synthetic/file IQ.
 
 ```bash
 cargo run --release --example make_fixture -- /tmp/airwav-demo.awr

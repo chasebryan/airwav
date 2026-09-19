@@ -1,6 +1,6 @@
 //! AIRWAV's native terminal presentation. Rendering never touches receiver I/O.
 mod theme;
-use airwav_core::{SignalIsland, Snapshot};
+use airwav_core::{DecodedFrame, SignalIsland, Snapshot};
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::{
     Frame,
@@ -36,6 +36,10 @@ pub enum Action {
     AudioToggle,
     AudioMode,
     AudioVolume(i8),
+    Tune(u32),
+    TuneStep(i64),
+    Gain { gain_tenth_db: Option<i32> },
+    Ppm { ppm: i32 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -43,6 +47,7 @@ pub enum View {
     Evidence,
     Diagnostics,
     Events,
+    Frames,
     Help,
     Log,
     Settings,
@@ -83,6 +88,7 @@ pub struct Ui {
     pub view: Option<View>,
     pub demo: bool,
     pub events: Vec<String>,
+    pub frames: Vec<DecodedFrame>,
     pub areas: HitAreas,
     pub zoom: f64,
     pub pan: f64,
@@ -102,6 +108,9 @@ pub struct Ui {
     peak: Option<Vec<f32>>,
     drag_start: Option<f64>,
     drag_now: Option<f64>,
+    pub tune_entry: String,
+    pub entering_tune: bool,
+    pub tune_step_hz: u32,
 }
 
 impl Ui {
@@ -133,6 +142,7 @@ impl Ui {
             view: None,
             demo: false,
             events: vec![],
+            frames: vec![],
             areas: HitAreas::default(),
             zoom: 1.,
             pan: 0.5,
@@ -152,6 +162,9 @@ impl Ui {
             peak: None,
             drag_start: None,
             drag_now: None,
+            tune_entry: String::new(),
+            entering_tune: false,
+            tune_step_hz: 25_000,
         }
     }
 
@@ -192,6 +205,25 @@ impl Ui {
                 }
             }
         }
+        for frame in &snapshot.frames {
+            if frame.verified && !self.frames.iter().any(|f| f.raw_hex == frame.raw_hex) {
+                self.note(format!(
+                    "{} verified · {}",
+                    frame.protocol,
+                    frame
+                        .fields
+                        .iter()
+                        .take(2)
+                        .map(|(k, v)| format!("{k} {v}"))
+                        .collect::<Vec<_>>()
+                        .join(" · ")
+                ));
+                self.frames.push(frame.clone());
+                if self.frames.len() > 128 {
+                    self.frames.remove(0);
+                }
+            }
+        }
         self.snapshot = Some(snapshot);
         self.clamp_selection();
     }
@@ -216,137 +248,248 @@ impl Ui {
         }
     }
 
+    fn gain_action(&self, dir: i32) -> Action {
+        const GAINS: [Option<i32>; 8] = [
+            None,
+            Some(0),
+            Some(90),
+            Some(148),
+            Some(259),
+            Some(366),
+            Some(402),
+            Some(496),
+        ];
+        let current = self
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.receiver.gain_tenth_db);
+        let idx = GAINS.iter().position(|g| *g == current).unwrap_or(0);
+        let next = (idx as i32 + dir).rem_euclid(GAINS.len() as i32) as usize;
+        Action::Gain {
+            gain_tenth_db: GAINS[next],
+        }
+    }
+
+    fn ppm_action(&self, dir: i32) -> Action {
+        let current = self.snapshot.as_ref().map(|s| s.receiver.ppm).unwrap_or(0);
+        Action::Ppm {
+            ppm: (current + dir).clamp(-200, 200),
+        }
+    }
+
+    fn handle_tune_key(&mut self, code: KeyCode) -> Action {
+        match code {
+            KeyCode::Esc => {
+                self.entering_tune = false;
+                self.tune_entry.clear();
+                Action::None
+            }
+            KeyCode::Enter => {
+                self.entering_tune = false;
+                let raw = self.tune_entry.trim().replace(',', "");
+                self.tune_entry.clear();
+                let value = raw.parse::<f64>().ok();
+                let hz = value.and_then(|n| {
+                    let hz = if n >= 1_000_000. {
+                        n
+                    } else if n >= 3_000. {
+                        n * 1_000.
+                    } else {
+                        n * 1_000_000.
+                    };
+                    if (500_000.0..=1_766_000_000.0).contains(&hz) {
+                        Some(hz.round() as u32)
+                    } else {
+                        None
+                    }
+                });
+                match hz {
+                    Some(hz) => Action::Tune(hz),
+                    None => {
+                        self.status = "VFO: could not parse frequency".into();
+                        Action::None
+                    }
+                }
+            }
+            KeyCode::Backspace => {
+                self.tune_entry.pop();
+                Action::None
+            }
+            KeyCode::Char(c) if c.is_ascii_digit() || c == '.' => {
+                if self.tune_entry.len() < 16 {
+                    self.tune_entry.push(c);
+                }
+                Action::None
+            }
+            _ => Action::None,
+        }
+    }
+
     pub fn handle(&mut self, event: Event) -> Action {
         match event {
-            Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
-                KeyCode::Char('q') => Action::Quit,
-                KeyCode::Char('a') => Action::AudioToggle,
-                KeyCode::Char('m') => Action::AudioMode,
-                KeyCode::Char('9') => Action::AudioVolume(-10),
-                KeyCode::Char('0') => Action::AudioVolume(10),
-                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::Quit,
-                KeyCode::Esc => {
-                    self.view = None;
-                    self.overlay_scroll = 0;
-                    Action::None
+            Event::Key(key) if key.kind == KeyEventKind::Press => {
+                if self.entering_tune {
+                    return self.handle_tune_key(key.code);
                 }
-                KeyCode::Char('?') | KeyCode::Char('h') if self.view.is_none() => {
-                    self.view = Some(View::Help);
-                    self.overlay_scroll = 0;
-                    Action::None
-                }
-                KeyCode::Char('d') => self.open(View::Diagnostics),
-                KeyCode::Char('e') => self.open(View::Events),
-                KeyCode::Char('g') => self.open(View::Log),
-                KeyCode::Char('s') => self.open(View::Settings),
-                KeyCode::Char('i') | KeyCode::Enter => self.open(View::Evidence),
-                KeyCode::Tab => {
-                    self.focused = (self.focused + 1) % 3;
-                    Action::None
-                }
-                KeyCode::BackTab => {
-                    self.focused = (self.focused + 2) % 3;
-                    Action::None
-                }
-                KeyCode::Home => {
-                    self.jump_visible(isize::MIN);
-                    Action::None
-                }
-                KeyCode::End => {
-                    self.jump_visible(isize::MAX);
-                    Action::None
-                }
-                KeyCode::PageDown => {
-                    self.jump_visible(8);
-                    Action::None
-                }
-                KeyCode::PageUp => {
-                    self.jump_visible(-8);
-                    Action::None
-                }
-                KeyCode::Down => {
-                    if self.view.is_some() {
-                        self.overlay_scroll = self.overlay_scroll.saturating_add(1);
-                    } else {
-                        self.jump_visible(1);
+                match key.code {
+                    KeyCode::Char('q') => Action::Quit,
+                    KeyCode::Char('a') => Action::AudioToggle,
+                    KeyCode::Char('m') => Action::AudioMode,
+                    KeyCode::Char('9') => Action::AudioVolume(-10),
+                    KeyCode::Char('0') => Action::AudioVolume(10),
+                    KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        Action::Quit
                     }
-                    Action::None
-                }
-                KeyCode::Up => {
-                    if self.view.is_some() {
-                        self.overlay_scroll = self.overlay_scroll.saturating_sub(1);
-                    } else {
+                    KeyCode::Esc => {
+                        self.view = None;
+                        self.overlay_scroll = 0;
+                        Action::None
+                    }
+                    KeyCode::Char('?') | KeyCode::Char('h') if self.view.is_none() => {
+                        self.view = Some(View::Help);
+                        self.overlay_scroll = 0;
+                        Action::None
+                    }
+                    KeyCode::Char('d') => self.open(View::Diagnostics),
+                    KeyCode::Char('e') => self.open(View::Events),
+                    KeyCode::Char('v') => self.open(View::Frames),
+                    KeyCode::Char('g') => self.open(View::Log),
+                    KeyCode::Char('s') => self.open(View::Settings),
+                    KeyCode::Char('i') | KeyCode::Enter => self.open(View::Evidence),
+                    KeyCode::Tab => {
+                        self.focused = (self.focused + 1) % 3;
+                        Action::None
+                    }
+                    KeyCode::BackTab => {
+                        self.focused = (self.focused + 2) % 3;
+                        Action::None
+                    }
+                    KeyCode::Home => {
+                        self.jump_visible(isize::MIN);
+                        Action::None
+                    }
+                    KeyCode::End => {
+                        self.jump_visible(isize::MAX);
+                        Action::None
+                    }
+                    KeyCode::PageDown => {
+                        self.jump_visible(8);
+                        Action::None
+                    }
+                    KeyCode::PageUp => {
+                        self.jump_visible(-8);
+                        Action::None
+                    }
+                    KeyCode::Down => {
+                        if self.view.is_some() {
+                            self.overlay_scroll = self.overlay_scroll.saturating_add(1);
+                        } else {
+                            self.jump_visible(1);
+                        }
+                        Action::None
+                    }
+                    KeyCode::Up => {
+                        if self.view.is_some() {
+                            self.overlay_scroll = self.overlay_scroll.saturating_sub(1);
+                        } else {
+                            self.jump_visible(-1);
+                        }
+                        Action::None
+                    }
+                    KeyCode::Char('r') if !self.replay => Action::Record,
+                    KeyCode::Char('c') if !self.replay => Action::Capture,
+                    KeyCode::Char(' ') => Action::Pause,
+                    KeyCode::Char('.') if self.replay => Action::Step,
+                    KeyCode::Char('[') if self.replay => Action::PreviousEvent,
+                    KeyCode::Char(']') if self.replay => Action::NextEvent,
+                    KeyCode::Char('+') | KeyCode::Char('=') => {
+                        let frac = self.cursor_frac();
+                        self.zoom_by(1., frac);
+                        Action::None
+                    }
+                    KeyCode::Char('-') => {
+                        let frac = self.cursor_frac();
+                        self.zoom_by(-1., frac);
+                        Action::None
+                    }
+                    KeyCode::Left if self.focused != 2 => {
+                        self.pan = (self.pan - 0.1 / self.zoom).max(0.);
+                        Action::None
+                    }
+                    KeyCode::Right if self.focused != 2 => {
+                        self.pan = (self.pan + 0.1 / self.zoom).min(1.);
+                        Action::None
+                    }
+                    KeyCode::Left => {
                         self.jump_visible(-1);
+                        Action::None
                     }
-                    Action::None
-                }
-                KeyCode::Char('r') if !self.replay => Action::Record,
-                KeyCode::Char('c') if !self.replay => Action::Capture,
-                KeyCode::Char(' ') => Action::Pause,
-                KeyCode::Char('.') if self.replay => Action::Step,
-                KeyCode::Char('[') if self.replay => Action::PreviousEvent,
-                KeyCode::Char(']') if self.replay => Action::NextEvent,
-                KeyCode::Char('+') | KeyCode::Char('=') => {
-                    let frac = self.cursor_frac();
-                    self.zoom_by(1., frac);
-                    Action::None
-                }
-                KeyCode::Char('-') => {
-                    let frac = self.cursor_frac();
-                    self.zoom_by(-1., frac);
-                    Action::None
-                }
-                KeyCode::Left if self.focused != 2 => {
-                    self.pan = (self.pan - 0.1 / self.zoom).max(0.);
-                    Action::None
-                }
-                KeyCode::Right if self.focused != 2 => {
-                    self.pan = (self.pan + 0.1 / self.zoom).min(1.);
-                    Action::None
-                }
-                KeyCode::Left => {
-                    self.jump_visible(-1);
-                    Action::None
-                }
-                KeyCode::Right => {
-                    self.jump_visible(1);
-                    Action::None
-                }
-                KeyCode::Char(n @ '1'..='5') if self.replay => {
-                    Action::Speed([0.25, 0.5, 1., 2., 4.][n as usize - '1' as usize])
-                }
-                KeyCode::Char('t') => {
-                    self.cycle_theme();
-                    Action::None
-                }
-                KeyCode::Char('k') => {
-                    self.peak_hold = !self.peak_hold;
-                    if !self.peak_hold {
-                        self.peak = None;
+                    KeyCode::Right => {
+                        self.jump_visible(1);
+                        Action::None
                     }
-                    Action::None
+                    KeyCode::Char(n @ '1'..='5') if self.replay => {
+                        Action::Speed([0.25, 0.5, 1., 2., 4.][n as usize - '1' as usize])
+                    }
+                    KeyCode::Char('t') => {
+                        self.cycle_theme();
+                        Action::None
+                    }
+                    KeyCode::Char('k') => {
+                        self.peak_hold = !self.peak_hold;
+                        if !self.peak_hold {
+                            self.peak = None;
+                        }
+                        Action::None
+                    }
+                    KeyCode::Char('o') => {
+                        self.sort_snr = !self.sort_snr;
+                        self.clamp_selection();
+                        Action::None
+                    }
+                    KeyCode::Char('f') => {
+                        self.hide_fading = !self.hide_fading;
+                        self.clamp_selection();
+                        Action::None
+                    }
+                    KeyCode::Char('z') => {
+                        self.zoom_to_selected();
+                        Action::None
+                    }
+                    KeyCode::F(10) => {
+                        self.demo = !self.demo;
+                        Action::None
+                    }
+                    KeyCode::F(12) => Action::Screenshot,
+                    KeyCode::Char('/') | KeyCode::Char(':') => {
+                        self.entering_tune = true;
+                        self.tune_entry.clear();
+                        self.status = "VFO: enter MHz, then Enter".into();
+                        Action::None
+                    }
+                    KeyCode::Char('n') => Action::TuneStep(-(self.tune_step_hz as i64)),
+                    KeyCode::Char('N') => Action::TuneStep(self.tune_step_hz as i64),
+                    KeyCode::Char(',') => self.gain_action(-1),
+                    KeyCode::Char('.') if !self.replay => self.gain_action(1),
+                    KeyCode::Char('{') => self.ppm_action(-1),
+                    KeyCode::Char('}') => self.ppm_action(1),
+                    KeyCode::Char('u') => self
+                        .cursor_hz
+                        .map(|hz| Action::Tune(hz.round().clamp(500_000.0, 1_766_000_000.0) as u32))
+                        .unwrap_or(Action::None),
+                    KeyCode::Char('U') => self
+                        .snapshot
+                        .as_ref()
+                        .and_then(|s| s.islands.get(self.selected))
+                        .map(|i| {
+                            Action::Tune(
+                                i.center_hz.round().clamp(500_000.0, 1_766_000_000.0) as u32
+                            )
+                        })
+                        .unwrap_or(Action::None),
+                    _ => Action::None,
                 }
-                KeyCode::Char('o') => {
-                    self.sort_snr = !self.sort_snr;
-                    self.clamp_selection();
-                    Action::None
-                }
-                KeyCode::Char('f') => {
-                    self.hide_fading = !self.hide_fading;
-                    self.clamp_selection();
-                    Action::None
-                }
-                KeyCode::Char('z') => {
-                    self.zoom_to_selected();
-                    Action::None
-                }
-                KeyCode::F(10) => {
-                    self.demo = !self.demo;
-                    Action::None
-                }
-                KeyCode::F(12) => Action::Screenshot,
-                _ => Action::None,
-            },
+            }
             Event::Mouse(mouse) => {
                 let point = (mouse.column, mouse.row);
                 self.hover = Some(point);
@@ -439,6 +582,12 @@ impl Ui {
                             self.drag_now = None;
                             if (frac - start).abs() > 0.04 {
                                 self.apply_drag(start, frac);
+                            } else if mouse.modifiers.contains(KeyModifiers::SHIFT) {
+                                if let Some(hz) = self.cursor_hz {
+                                    return Action::Tune(
+                                        hz.round().clamp(500_000.0, 1_766_000_000.0) as u32,
+                                    );
+                                }
                             } else {
                                 self.select_nearest_to_cursor();
                             }
@@ -1254,11 +1403,24 @@ fn signals(frame: &mut Frame, area: Rect, ui: &mut Ui, t: &Theme) {
             let act = activity(&signal.state);
             let marker = if i == ui.selected { "▌" } else { " " };
             let line = format!(
-                "{marker}{:>10.6}  {:>5.1}  {:>4.1}  {:<6}  UNK",
+                "{marker}{:>10.6}  {:>5.1}  {:>4.1}  {:<6}  {prot}",
                 signal.center_hz / 1e6,
                 signal.bandwidth_hz / 1000.,
                 signal.snr_db,
-                act
+                act,
+                prot = if signal.verified {
+                    match signal.protocol.as_str() {
+                        "ADS_B" => "ADS-B",
+                        "MODE_S" => "MS",
+                        "ACARS" => "ACARS",
+                        "POCSAG" => "POCS",
+                        "APRS" => "APRS",
+                        "SAME" => "SAME",
+                        other => other,
+                    }
+                } else {
+                    "UNK"
+                }
             );
             let fg = if i == ui.selected {
                 t.selected
@@ -1309,11 +1471,36 @@ fn evidence_lines(ui: &Ui) -> Vec<String> {
                 format!("Dwell         {}", dwell(signal, s.receiver.sample_rate)),
                 format!("Activity      {act}"),
                 String::new(),
-                "Protocol      UNKNOWN".into(),
-                "Confidence    not established".into(),
-                "Evidence      FFT power / local noise".into(),
-                "No frame or identity decoded.".into(),
+                format!(
+                    "Protocol      {}",
+                    if signal.verified {
+                        signal.protocol.as_str()
+                    } else {
+                        "UNKNOWN"
+                    }
+                ),
+                format!(
+                    "Confidence    {}",
+                    if signal.verified {
+                        "CRC verified"
+                    } else {
+                        "not established"
+                    }
+                ),
+                "Evidence      FFT power / local noise; CRC if a decoder verified a frame.".into(),
             ]);
+            if let Some(frame) = s.frames.iter().rev().find(|f| {
+                f.verified
+                    && (f.island_id == Some(signal.id)
+                        || (f.frequency_hz - signal.center_hz).abs() < 80_000.)
+            }) {
+                lines.push(String::new());
+                lines.push(frame.evidence.clone());
+                for (k, v) in &frame.fields {
+                    lines.push(format!("{k:<14}{v}"));
+                }
+                lines.push(format!("HEX           {}", frame.raw_hex));
+            }
             if !listen_warn.is_empty() {
                 lines.push(String::new());
                 lines.push(listen_warn.into());
@@ -1403,6 +1590,7 @@ fn commands(frame: &mut Frame, area: Rect, ui: &mut Ui, t: &Theme) {
     }
     let mut secondary = vec![
         ("Events", Action::Open(View::Events)),
+        ("Frames", Action::Open(View::Frames)),
         ("Log", Action::Open(View::Log)),
         ("Settings", Action::Open(View::Settings)),
         ("Vol-", Action::AudioVolume(-10)),
@@ -1470,8 +1658,10 @@ fn overlay(frame: &mut Frame, ui: &mut Ui, view: View, t: &Theme) {
                 "View pause/speed do not pause audio. PCM level is player input, not the speaker."
                     .into(),
                 "Replay: 1–5 = 0.25× / 0.5× / 1× / 2× / 4× · . step · [ / ] events".into(),
-                "+/− zoom · wheel zooms toward cursor · Shift+wheel pan · Z zoom to island".into(),
-                "K peak hold · O sort SNR/frequency · F hide fading islands".into(),
+                "n/N step VFO · / enter MHz · u cursor tune · U island tune · Shift-click retune"
+                    .into(),
+                ",/. gain · {/} PPM · V CRC frames · K peak hold · O sort SNR · F hide fading"
+                    .into(),
                 "T theme · Tab focus · F10 demo · F12 SVG · Esc close · Q quit".into(),
                 "Recording: Q asks once more before finalizing.".into(),
                 "".into(),
@@ -1480,7 +1670,7 @@ fn overlay(frame: &mut Frame, ui: &mut Ui, view: View, t: &Theme) {
                 "UNKNOWN is the protocol. SNR is a measurement, not identity confidence.".into(),
                 "A capture preserves available ring IQ and the configured post-roll.".into(),
                 "USB sample loss cannot be measured in normal librtlsdr RF mode.".into(),
-                "PRISM, MAX-I and decoders are future milestones; nothing is fabricated.".into(),
+                "PRISM and MAX-I remain future; decoder output is CRC-verified or UNKNOWN.".into(),
             ],
         ),
         View::Evidence => (" AIRWAV / EVIDENCE ", evidence_lines(ui)),
@@ -1490,6 +1680,32 @@ fn overlay(frame: &mut Frame, ui: &mut Ui, view: View, t: &Theme) {
                 vec!["No event captures in this session.".into()]
             } else {
                 ui.events.iter().rev().cloned().collect()
+            },
+        ),
+        View::Frames => (
+            " AIRWAV / FRAMES ",
+            if ui.frames.is_empty() {
+                vec![
+                    "No CRC-verified frames yet.".into(),
+                    "Tune 1090 MHz (Mode S), 131.550 (ACARS), 144.390 (APRS),".into(),
+                    "162.400 (SAME) or 433.92 (POCSAG). Labels require CRC/parity.".into(),
+                ]
+            } else {
+                ui.frames
+                    .iter()
+                    .rev()
+                    .take(40)
+                    .map(|f| {
+                        let fields = f
+                            .fields
+                            .iter()
+                            .take(3)
+                            .map(|(k, v)| format!("{k} {v}"))
+                            .collect::<Vec<_>>()
+                            .join(" · ");
+                        format!("{}  {:.6} MHz  {fields}", f.protocol, f.frequency_hz / 1e6)
+                    })
+                    .collect()
             },
         ),
         View::Log => (
@@ -1518,8 +1734,9 @@ fn overlay(frame: &mut Frame, ui: &mut Ui, view: View, t: &Theme) {
                 ),
                 format!("Zoom           {:.0}×   (Z zoom-to-selected)", ui.zoom),
                 "".into(),
-                "Center, gain, FFT size and detection SNR are configuration,".into(),
-                "not live retune. This milestone does not retune while streaming.".into(),
+                "Center, gain and PPM retune the V4 while streaming (n/N step, / VFO, u cursor, ,/. gain, {/} PPM)."
+                    .into(),
+                "A retune starts a new DSP/decoder epoch.".into(),
             ],
         ),
         View::Diagnostics => {
@@ -1575,7 +1792,7 @@ fn overlay(frame: &mut Frame, ui: &mut Ui, view: View, t: &Theme) {
                     format!("Event IQ samples lost   {}", m.storage_dropped_iq_samples),
                     format!("Signal islands          {} / 256", s.islands.len()),
                     format!("Island candidates omitted {}", m.island_candidates_omitted),
-                    "Decoder workers         0 (not enabled in this milestone)".into(),
+                    "Decoder workers         Mode S, ACARS, APRS, POCSAG, SAME · CRC/parity or silence".into(),
                     "MAX-I                   not enabled in this milestone".into(),
                     "CPU/RSS                 not instrumented".into(),
                 ]);
@@ -1672,6 +1889,8 @@ mod tests {
             snr_db: snr,
             observations: 4,
             state: state.into(),
+            protocol: "UNKNOWN".into(),
+            verified: false,
         }
     }
 
@@ -1688,6 +1907,7 @@ mod tests {
             },
             islands,
             metrics: Metrics::default(),
+            frames: vec![],
         }
     }
 
@@ -1948,5 +2168,46 @@ mod tests {
         assert_eq!(activity("FADING / UNKNOWN"), "FADING");
         assert_eq!(activity("LIVE"), "LIVE");
         assert_eq!(activity("FADING"), "FADING");
+    }
+
+    #[test]
+    fn tuner_keys_step_vfo_gain_and_ppm() {
+        let mut ui = Ui::new("Midnight", true, "DEMO FIXTURE", true);
+        ui.update(snapshot(vec![]));
+        assert_eq!(
+            ui.handle(Event::Key(crossterm::event::KeyEvent::new(
+                KeyCode::Char('n'),
+                KeyModifiers::NONE
+            ))),
+            Action::TuneStep(-25_000)
+        );
+        assert_eq!(
+            ui.handle(Event::Key(crossterm::event::KeyEvent::new(
+                KeyCode::Char('N'),
+                KeyModifiers::SHIFT
+            ))),
+            Action::TuneStep(25_000)
+        );
+        assert_eq!(
+            ui.handle(Event::Key(crossterm::event::KeyEvent::new(
+                KeyCode::Char(','),
+                KeyModifiers::NONE
+            ))),
+            Action::Gain {
+                gain_tenth_db: Some(496)
+            }
+        );
+        assert_eq!(
+            ui.handle(Event::Key(crossterm::event::KeyEvent::new(
+                KeyCode::Char('{'),
+                KeyModifiers::NONE
+            ))),
+            Action::Ppm { ppm: -1 }
+        );
+        ui.handle(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('v'),
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(ui.view, Some(View::Frames));
     }
 }

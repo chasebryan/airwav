@@ -21,9 +21,12 @@ export function snapshotJson(snapshot: Snapshot, source: string): string {
         snrDb: i.snrDb,
         observations: i.observations,
         state: i.state,
+        protocol: i.protocol,
+        verified: i.verified,
       })),
+      frames: snapshot.frames,
       metrics: snapshot.metrics,
-      note: "Measurements only. No protocol, identity, or decoder output.",
+      note: "Measurements plus CRC-verified decoder frames only. SNR is not identity confidence.",
     },
     null,
     2,
@@ -58,7 +61,7 @@ export function spectrumSvg(
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
   <rect width="100%" height="100%" fill="${theme.bg}"/>
   <text x="24" y="28" fill="${theme.text}" font-family="IBM Plex Mono, ui-monospace, monospace" font-size="16" font-weight="600">AIRWAV / SPECTRUM</text>
-  <text x="24" y="48" fill="${theme.muted}" font-family="IBM Plex Mono, ui-monospace, monospace" font-size="11">DEMO FIXTURE · ${formatMhz(snapshot.receiver.centerHz)} MHz · UNKNOWN only</text>
+  <text x="24" y="48" fill="${theme.muted}" font-family="IBM Plex Mono, ui-monospace, monospace" font-size="11">${formatMhz(snapshot.receiver.centerHz)} MHz · ${snapshot.islands.filter((i) => i.verified).length} CRC-verified islands</text>
   <polyline fill="none" stroke="${theme.accent}" stroke-width="1.4" points="${pts.join(" ")}"/>
   <text x="24" y="${height - 10}" fill="${theme.muted}" font-family="IBM Plex Mono, ui-monospace, monospace" font-size="11">${formatMhz(start, 3)} MHz</text>
   <text x="${width / 2}" y="${height - 10}" fill="${theme.muted}" font-family="IBM Plex Mono, ui-monospace, monospace" font-size="11" text-anchor="middle">${formatMhz((start + end) / 2, 3)} MHz</text>

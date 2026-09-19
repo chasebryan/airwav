@@ -1,12 +1,13 @@
 # Architecture
 
-AIRWAV is a six-crate Rust workspace. Crates divide execution and trust boundaries, rather than creating a crate per product name.
+AIRWAV is a seven-crate Rust workspace. Crates divide execution and trust boundaries, rather than creating a crate per product name.
 
 | Crate | Responsibility |
 | --- | --- |
 | airwav-core | Validated configuration, receiver identity, IQ blocks, measurements, metrics |
 | airwav-v4 | The only unsafe/FFI code; librtlsdr loading, V4 validation, exclusive configuration, bounded streaming |
 | airwav-dsp | Deterministic FFT, noise estimate, Signal Island detection/history, bounded raw IQ ring |
+| airwav-decode | CRC/parity-gated protocol modules. Silence unless the check remainder is 0 |
 | airwav-record | Versioned AWR journals, SQLite index, BLAKE3 IQ artifacts, disk guards, recovery |
 | airwav-ui | Ratatui rendering, input state, themes, exact cell-buffer SVG export |
 | airwav-app | CLI, worker orchestration, terminal lifecycle, replay timing, paths and logs |
@@ -31,4 +32,4 @@ Shutdown sets an out-of-band stop flag, cancels librtlsdr, joins the capture wor
 
 SQLite schema v1 uses WAL, FULL synchronization, explicit migrations and immutable observation/event triggers. JSONL is the portable recovery source; SQLite is a rebuildable index. RF facts are not revised in place. Session manifests contain source identity and receiver configuration. A future multi-receiver session must model multiple V4 units only.
 
-This milestone deliberately has no decoder scheduler, RF retuning while streaming, confidence synthesis, or enrichment layer. See [roadmap.md](roadmap.md) for the gated implementation sequence.
+This milestone retunes the V4 while `read_async` is running (`rtlsdr_set_center_freq` is documented as safe during streaming) and resets DSP/decoder epochs on every successful retune. Decoder output is CRC/parity evidence or UNKNOWN. There is still no MAX-I scheduler or enrichment layer. See [roadmap.md](roadmap.md) for remaining gates.

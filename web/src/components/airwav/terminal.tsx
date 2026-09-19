@@ -15,7 +15,8 @@ import {
   Radio,
 } from "lucide-react";
 import { SpectrumPlot, WaterfallPlot } from "./plots";
-import { EvidencePanel, IslandList, Overlay } from "./panels";
+import { EvidencePanel, FrameRail, IslandList, Overlay } from "./panels";
+import { TunerBar } from "./tuner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { download, snapshotJson, spectrumSvg } from "@/lib/airwav/export";
@@ -74,6 +75,11 @@ export function Terminal() {
         return;
       }
       if (s.overlay && key !== "?" && key !== "F12") return;
+      if (key === "/" ) {
+        e.preventDefault();
+        document.getElementById("aw-vfo")?.focus();
+        return;
+      }
       switch (key) {
         case "q":
         case "Q":
@@ -200,8 +206,37 @@ export function Terminal() {
         case "P":
           s.toggleReplay();
           break;
+        case "n":
+          s.stepTune(-1);
+          break;
+        case "N":
         case ".":
-          s.stepReplay();
+          if (key === "." && s.replay) {
+            s.stepReplay();
+            break;
+          }
+          if (key === "N" || key === ".") s.stepTune(1);
+          break;
+        case ",":
+          s.stepTune(-1);
+          break;
+        case "u":
+          s.tuneToCursor();
+          break;
+        case "U":
+          s.tuneToSelected();
+          break;
+        case "y":
+        case "Y":
+          s.toggleScan();
+          break;
+        case "v":
+        case "V":
+          s.setOverlay("frames");
+          break;
+        case "/":
+          e.preventDefault();
+          document.getElementById("aw-vfo")?.focus();
           break;
         case "[":
           s.jumpEvent(-1);
@@ -235,6 +270,7 @@ export function Terminal() {
   return (
     <div className="relative flex h-dvh min-h-0 flex-col overflow-hidden bg-bg text-fg">
       <Header />
+      <TunerBar />
       <MainStage />
       <Toolbar />
       <StatusBar />
@@ -253,6 +289,7 @@ function Header() {
   const replay = useAirwav((s) => s.replay);
   const speed = useAirwav((s) => s.speed);
   const band = useAirwav((s) => s.band);
+  const scanning = useAirwav((s) => s.scanning);
   const demo = useAirwav((s) => s.demo);
   const hoverHz = useAirwav((s) => s.hoverHz);
   const hoverDbfs = useAirwav((s) => s.hoverDbfs);
@@ -290,7 +327,7 @@ function Header() {
         <Badge className="border-unknown/50 text-unknown">{source}</Badge>
       </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-xs text-muted tabular-nums">
-        <span>SYNTHETIC IQ · not a receiver</span>
+        <span>{source}</span>
         <span>
           {snapshot
             ? `${formatMhz(snapshot.receiver.centerHz)} MHz`
@@ -299,7 +336,7 @@ function Header() {
               : "—"}
         </span>
         <span>{snapshot ? `${(snapshot.receiver.sampleRate / 1e6).toFixed(2)} MS/s` : "2.56 MS/s"}</span>
-        <span>{replay ? `REPLAY ${speed.toFixed(2)}×` : "MANUAL WINDOW"}</span>
+        <span>{replay ? `REPLAY ${speed.toFixed(2)}×` : scanning ? "SCAN" : "VFO"}</span>
         <span className="inline-flex items-center gap-2 text-prism">
           RING
           <span className="inline-block h-1.5 w-16 overflow-hidden rounded-full bg-fg/10">
@@ -330,7 +367,12 @@ function Header() {
         {paused && <span className="text-unknown">View paused</span>}
         <span className="text-live">{liveCount} live</span>
         <span className="text-muted">{fadingCount} fading</span>
-        <span className="text-unknown">Unk</span>
+        <span className="text-prism">
+          {snapshot?.islands.filter((i) => i.verified).length ?? 0} crc
+        </span>
+        <span className="text-unknown">
+          {(snapshot?.islands.length ?? 0) - (snapshot?.islands.filter((i) => i.verified).length ?? 0)} unk
+        </span>
         <span className={audioActive ? "text-prism" : "text-muted"}>
           {modes[audioMode % 3]} {audioVolume}%
           {audioActive && lockedHz !== null ? ` · lock ${formatMhz(lockedHz)}` : ""}
@@ -367,9 +409,10 @@ function MainStage() {
         <SpectrumPlot />
         <WaterfallPlot />
       </div>
-      <div className={cn("grid min-h-0 gap-2", demo ? "hidden lg:grid lg:grid-rows-2" : "grid-rows-2")}>
+      <div className={cn("grid min-h-0 gap-2", demo ? "hidden lg:grid lg:grid-rows-2" : "grid-rows-[minmax(0,1fr)_minmax(0,0.9fr)_minmax(132px,0.7fr)]")}>
         <IslandList />
         <EvidencePanel />
+        {!demo && <FrameRail />}
       </div>
     </div>
   );
@@ -443,6 +486,9 @@ function Toolbar() {
         <Button variant="ghost" onClick={() => setOverlay("events")}>
           Events
         </Button>
+        <Button variant="ghost" onClick={() => setOverlay("frames")}>
+          Frames
+        </Button>
         <Button variant="ghost" onClick={() => setOverlay("diagnostics")}>
           <Gauge className="size-3.5" />
           Diag
@@ -478,7 +524,7 @@ function StatusBar() {
     <footer className="flex shrink-0 flex-col gap-0.5 border-t border-border px-4 py-2 font-mono text-[11px] text-muted aw-enter aw-enter-delay-3 sm:flex-row sm:items-center sm:justify-between">
       <p className="truncate text-fg/80">{status}</p>
       <p className="hidden sm:block">
-        ? Help · ↑↓ Select · click/drag spectrum · Z island · A Listen · T Theme · Q Reset
+        ? Help · / VFO · n/N step · Shift-click tune · V frames · A Listen · T Theme · Q Reset
         {snapshot ? ` · ${snapshot.islands.length} islands` : ""}
       </p>
     </footer>

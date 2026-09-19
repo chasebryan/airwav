@@ -2,11 +2,16 @@
 
 ## Unreleased
 
+- Live VFO: n/N step, `/` enter MHz, cursor/island/Shift-click retune, gain and PPM while streaming. A retune starts a new DSP/decoder epoch.
+- CRC-gated decoders in `airwav-decode` and the browser observer: Mode S/1090ES (CRC-24), ACARS (odd parity + block checksum), APRS (AX.25 FCS), POCSAG (BCH(31,21)+parity), SAME (`ZCZC` header). Frequency coincidence is not identity.
+- Native Frames overlay (V) and observer frame rail with decoder arming chips.
+- Browser observer of synthetic or dropped IQ is no longer a presentation-only DEMO FIXTURE; it is still not a USB V4.
 - Doctor storage check fails closed when free space is below configured `minimum_free_bytes`, with clear guidance naming the minimum.
 - TUI header shows recording elapsed wall time (`● RECORDING M:SS` / `H:MM:SS`) via sticky `Ui::set_recording` start.
 - CI concurrency cancel-in-progress and 45-minute job timeout; `make check` mirrors the core CI gate set.
 - Safer sessions directory creation (no `expect` on the parent path).
 - CONTRIBUTING: short calm-PR hygiene (fmt before push, small PRs, re-land instead of WIP recovery).
+
 - Terminal presentation overhaul: compact instrument chrome, power-mapped spectrum with dB scale, noise floor, peak hold, island cursors, cursor frequency/dBFS readout, theme-true waterfalls, and a denser island table (frequency, bandwidth, SNR, LIVE/FADING, protocol UNKNOWN).
 - Separate activity (LIVE / FADING hysteresis) from protocol (UNKNOWN). Old recordings that stored `UNKNOWN` on current islands still render as LIVE.
 - Click a spectrum bin to select the nearest island; wheel zoom keeps the cursor frequency; Z zooms to the selected island; Home/End/PgUp/PgDn move the list; O sorts by SNR; F hides fading islands; K toggles peak hold.

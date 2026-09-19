@@ -315,7 +315,10 @@ export function SpectrumPlot() {
     if (start !== null && Math.abs(frac - start) > 0.02) applyDrag(frac);
     else {
       const hz = useAirwav.getState().hoverHz;
-      if (hz !== null) useAirwav.getState().selectNearest(hz);
+      if (hz !== null) {
+        if (e.shiftKey) useAirwav.getState().setCenter(hz, "click");
+        else useAirwav.getState().selectNearest(hz);
+      }
       setDragStart(null);
     }
   };

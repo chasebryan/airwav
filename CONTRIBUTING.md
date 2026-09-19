@@ -35,9 +35,10 @@ cargo run --release --bin airwav -- replay /tmp/airwav-demo.awr --headless
 
 - `airwav-v4` is the only crate that may contain `unsafe` / FFI.
 - DSP stays deterministic and allocation-bounded. Do not add unvalidated I/Q correction.
+- `airwav-decode` emits a protocol tag only after CRC or parity. Frequency coincidence is not identity.
 - The UI must not touch receiver I/O. Presentation pause must not stop capture.
 - Recordings are immutable observations. Do not revise RF facts in place.
-- Fixture sources must remain labeled `DEMO FIXTURE` and must not be selectable as live hardware.
+- Fixture sources must remain labeled `DEMO FIXTURE` and must not be selectable as live hardware. The browser observer of synthetic or dropped IQ is still not a USB V4.
 
 ## Pull requests
 

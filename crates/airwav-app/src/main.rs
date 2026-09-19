@@ -25,7 +25,7 @@ use std::{
     name = "airwav",
     version,
     about = "AIRWAV • V4-exclusive, passive RF observation terminal",
-    long_about = "AIRWAV captures and measures RTL-SDR Blog V4 IQ, preserves evidence, and replays AWR recordings offline. This is the capture foundation milestone; protocol decoding and MAX-I scheduling are not yet enabled."
+    long_about = "AIRWAV captures and measures RTL-SDR Blog V4 IQ, retunes the R828D while streaming, and emits CRC/parity-verified decoder frames (Mode S, ACARS, APRS, POCSAG, SAME). Frequency coincidence is not identity. MAX-I scheduling is not enabled."
 )]
 struct Cli {
     #[arg(long, global = true)]

@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "AGPL-3.0-or-later"
 rust-version = "1.98"
@@ -14,6 +14,7 @@ airwav-v4 = { path = "crates/airwav-v4" }
 airwav-dsp = { path = "crates/airwav-dsp" }
 airwav-record = { path = "crates/airwav-record" }
 airwav-ui = { path = "crates/airwav-ui" }
+airwav-decode = { path = "crates/airwav-decode" }
 anyhow = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }

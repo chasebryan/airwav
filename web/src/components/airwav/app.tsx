@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Terminal } from "./components/airwav/terminal";
+import { Terminal } from "@/components/airwav/terminal";
 import { useAirwav } from "@/lib/airwav/store";
 
 export default function App() {

@@ -287,8 +287,9 @@ struct Device {
     ptr: Dev,
     api: Arc<Api>,
 }
-// SAFETY: Device is private. Only the streaming worker uses read; configuration
-// finishes before sharing. The only concurrent call is the documented cancel API.
+// SAFETY: Device is private. The streaming worker uses read; configuration
+// finishes before sharing. Concurrent calls allowed with read_async are
+// cancel_async, set_center_freq, set_tuner_gain, set_freq_correction.
 unsafe impl Send for Device {}
 // SAFETY: the same private read/cancel invariant prevents other concurrent FFI.
 unsafe impl Sync for Device {}
@@ -480,6 +481,56 @@ pub struct Stream {
 impl Stream {
     pub fn is_finished(&self) -> bool {
         self.worker.as_ref().is_none_or(|w| w.is_finished())
+    }
+    /// Retune while streaming. librtlsdr documents set_center_freq as usable during read_async.
+    pub fn retune(&self, center_hz: u32) -> Result<u32> {
+        if !(500_000..=1_766_000_000).contains(&center_hz) {
+            return Err(Error::Config(
+                "center_hz must be 500000..=1766000000".into(),
+            ));
+        }
+        // SAFETY: Device handle is live for the Stream lifetime. set_center_freq may
+        // overlap read_async; it is one of the documented concurrent tuner APIs.
+        unsafe {
+            check(
+                (self.device.api.center)(self.device.ptr, center_hz),
+                "retune V4",
+            )?;
+            let actual = (self.device.api.get_center)(self.device.ptr);
+            if actual == 0 {
+                return Err(Error::Driver("retune readback was 0 Hz".into()));
+            }
+            Ok(actual)
+        }
+    }
+    pub fn set_gain(&self, gain_tenth_db: Option<i32>) -> Result<()> {
+        // SAFETY: tuner gain may be changed during read_async.
+        unsafe {
+            check(
+                (self.device.api.gain_mode)(self.device.ptr, i32::from(gain_tenth_db.is_some())),
+                "set tuner gain mode",
+            )?;
+            if let Some(gain) = gain_tenth_db {
+                check(
+                    (self.device.api.gain)(self.device.ptr, gain),
+                    "set tuner gain",
+                )?;
+            }
+        }
+        Ok(())
+    }
+    pub fn set_ppm(&self, ppm: i32) -> Result<()> {
+        if !(-200..=200).contains(&ppm) {
+            return Err(Error::Config("ppm must be -200..=200".into()));
+        }
+        // SAFETY: frequency correction may be changed during read_async.
+        unsafe {
+            check(
+                (self.device.api.ppm)(self.device.ptr, ppm),
+                "set frequency correction",
+            )?;
+        }
+        Ok(())
     }
     pub fn stop(&mut self) -> Result<()> {
         self.stop.store(true, Ordering::Release);
