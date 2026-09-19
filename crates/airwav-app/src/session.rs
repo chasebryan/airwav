@@ -1,8 +1,8 @@
 //! Live, capture, and replay session loops.
-#[path = "live.rs"]
-mod live;
 #[path = "capture_export.rs"]
 mod capture_export;
+#[path = "live.rs"]
+mod live;
 #[path = "replay.rs"]
 mod replay;
 
