@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Terminal Listen: `pw-cat` now requests raw s16 PCM (`--raw`). Without it, libsndfile tried to open stdin (`-`) as a sound file, exited, and AIRWAV reported Broken pipe.
+
 - Live VFO: n/N step, `/` enter MHz, cursor/island/Shift-click retune, gain and PPM while streaming. A retune starts a new DSP/decoder epoch.
 - CRC-gated decoders in `airwav-decode` and the browser observer: Mode S/1090ES (CRC-24), ACARS (odd parity + block checksum), APRS (AX.25 FCS), POCSAG (BCH(31,21)+parity), SAME (`ZCZC` header). Frequency coincidence is not identity.
 - Native Frames overlay (V) and observer frame rail with decoder arming chips.

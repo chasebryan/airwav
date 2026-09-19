@@ -111,78 +111,115 @@ fn stop_player(child: &Mutex<Child>) {
     }
 }
 fn player() -> Result<(Child, &'static str)> {
-    let choices: &[(&str, &[&str])] = &[
-        (
-            "pw-cat",
-            &[
-                "--playback",
-                "--format=s16",
-                "--rate=48000",
-                "--channels=1",
-                "--latency=100ms",
-                "-",
-            ],
-        ),
-        (
-            "paplay",
-            &[
-                "--raw",
-                "--format=s16le",
-                "--rate=48000",
-                "--channels=1",
-                "--latency-msec=100",
-                "--stream-name=AIRWAV",
-            ],
-        ),
-        (
-            "aplay",
-            &[
-                "-q",
-                "-t",
-                "raw",
-                "-f",
-                "S16_LE",
-                "-r",
-                "48000",
-                "-c",
-                "1",
-                "--buffer-time=100000",
-            ],
-        ),
-        (
-            "ffplay",
-            &[
-                "-nodisp",
-                "-autoexit",
-                "-loglevel",
-                "error",
-                "-f",
-                "s16le",
-                "-ar",
-                "48000",
-                "-ac",
-                "1",
-                "-i",
-                "pipe:0",
-            ],
-        ),
-    ];
-    for &(program, args) in choices {
-        match Command::new(program)
-            .args(args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-        {
-            Ok(child) => return Ok((child, program)),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(e) => return Err(e).with_context(|| format!("Start audio player {program}")),
+    let mut last_fail = String::new();
+    for &(program, args) in PLAYERS {
+        match spawn_player(program, args) {
+            Ok(Some(child)) => return Ok((child, program)),
+            Ok(None) => continue,
+            Err(error) => last_fail = error.to_string(),
         }
     }
-    bail!(
-        "No audio player found; install pipewire-utils (pw-cat), pulseaudio-utils (paplay), alsa-utils (aplay), or ffplay"
-    )
+    if last_fail.is_empty() {
+        bail!(
+            "No audio player found; install pipewire-utils (pw-cat), pulseaudio-utils (paplay), alsa-utils (aplay), or ffplay"
+        );
+    }
+    bail!("Audio player failed to start: {last_fail}")
+}
+
+const PLAYERS: &[(&str, &[&str])] = &[
+    (
+        "pw-cat",
+        &[
+            "--playback",
+            "--raw",
+            "--format=s16",
+            "--rate=48000",
+            "--channels=1",
+            "--latency=100ms",
+            "-",
+        ],
+    ),
+    (
+        "paplay",
+        &[
+            "--raw",
+            "--format=s16le",
+            "--rate=48000",
+            "--channels=1",
+            "--latency-msec=100",
+            "--stream-name=AIRWAV",
+        ],
+    ),
+    (
+        "aplay",
+        &[
+            "-q",
+            "-t",
+            "raw",
+            "-f",
+            "S16_LE",
+            "-r",
+            "48000",
+            "-c",
+            "1",
+            "--buffer-time=100000",
+        ],
+    ),
+    (
+        "ffplay",
+        &[
+            "-nodisp",
+            "-autoexit",
+            "-loglevel",
+            "error",
+            "-f",
+            "s16le",
+            "-ar",
+            "48000",
+            "-ac",
+            "1",
+            "-i",
+            "pipe:0",
+        ],
+    ),
+];
+
+fn spawn_player(program: &str, args: &[&str]) -> Result<Option<Child>> {
+    let mut child = match Command::new(program)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e).with_context(|| format!("Start audio player {program}")),
+    };
+    // pw-cat without --raw dies immediately: libsndfile tries to open "-" as a WAV.
+    thread::sleep(Duration::from_millis(40));
+    match child.try_wait() {
+        Ok(None) => Ok(Some(child)),
+        Ok(Some(status)) => {
+            let mut tail = String::new();
+            if let Some(mut stderr) = child.stderr.take() {
+                let _ = stderr.read_to_string(&mut tail);
+            }
+            let _ = child.wait();
+            let detail = tail
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(160)
+                .collect::<String>();
+            bail!("{program} exited {status} {detail}");
+        }
+        Err(e) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            Err(e).with_context(|| format!("Wait for audio player {program}"))
+        }
+    }
 }
 
 enum Input {
@@ -472,6 +509,28 @@ impl Drop for Monitor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pipewire_player_requests_raw_pcm_not_a_sound_file() {
+        let args = PLAYERS
+            .iter()
+            .find(|(name, _)| *name == "pw-cat")
+            .expect("pw-cat is the preferred PipeWire player")
+            .1;
+        assert!(
+            args.contains(&"--raw"),
+            "pw-cat must not hand stdin to libsndfile: {args:?}"
+        );
+        assert!(args.contains(&"--playback"), "{args:?}");
+        assert!(args.contains(&"--format=s16"), "{args:?}");
+        assert!(args.contains(&"-"), "{args:?}");
+        assert!(
+            PLAYERS
+                .iter()
+                .any(|(name, args)| *name == "paplay" && args.contains(&"--raw")),
+            "paplay must also request raw PCM"
+        );
+    }
 
     #[test]
     fn pcm_meter_measures_level_and_handles_silence_without_nonfinite_values() {
