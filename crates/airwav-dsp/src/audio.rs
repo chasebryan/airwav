@@ -392,6 +392,7 @@ mod tests {
             );
         }
     }
+    include!("simultaneous_adjacent_channel.rs");
     #[test]
     fn invalid_input_and_gaps_leave_output_unchanged() {
         let c = config(AudioMode::Am, 1_024_000, 0.);
