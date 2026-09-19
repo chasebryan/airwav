@@ -1,7 +1,7 @@
 //! Offline replay session loop.
+use super::capture_export::save_view;
 use crate::monitor;
 use crate::support::{Screen, audio_message, audio_settings, sync_audio, truecolor};
-use super::capture_export::save_view;
 use airwav_core::{Config, now_ns};
 use airwav_record::{Reader, Source};
 use airwav_ui::{Action, Ui};
@@ -10,7 +10,10 @@ use crossterm::event;
 use std::{
     fs,
     path::Path,
-    sync::{Arc, atomic::{AtomicBool, Ordering}},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
