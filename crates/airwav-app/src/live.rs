@@ -1,7 +1,7 @@
 //! Live V4 terminal session.
+use super::capture_export::save_view;
 use crate::runtime::Control;
 use crate::support::{Screen, audio_message, audio_settings, start_runtime, sync_audio, truecolor};
-use super::capture_export::save_view;
 use airwav_core::{Config, now_ns};
 use airwav_ui::{Action, Ui};
 use anyhow::{Result, ensure};

@@ -18,7 +18,11 @@ use std::{
     time::Instant,
 };
 
-pub(crate) fn start_runtime(mut config: Config, data: &Path, recording: Option<PathBuf>) -> Result<Runtime> {
+pub(crate) fn start_runtime(
+    mut config: Config,
+    data: &Path,
+    recording: Option<PathBuf>,
+) -> Result<Runtime> {
     let driver = V4Driver::load(config.library.as_deref())?;
     let receiver = driver.open(&config.receiver)?;
     config.receiver = receiver.config.clone();
