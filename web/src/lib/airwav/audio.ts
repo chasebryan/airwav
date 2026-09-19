@@ -50,19 +50,27 @@ function graph(): AudioContext | null {
   return ctx;
 }
 
+/** Call from a click or key handler. AudioContext stays suspended until a user gesture. */
+export function armListen(): void {
+  const ac = graph();
+  if (ac && ac.state !== "running") void ac.resume();
+}
+
 export function setListen(state: ListenState | null): void {
+  if (!state || !state.active) {
+    if (!ctx || !master || !amDepth || !fmDepth) return;
+    const now = ctx.currentTime;
+    master.gain.setTargetAtTime(0, now, 0.04);
+    amDepth.gain.setTargetAtTime(0, now, 0.04);
+    fmDepth.gain.setTargetAtTime(0, now, 0.04);
+    return;
+  }
   const ac = graph();
   if (!ac || !carrier || !master || !lfo || !amDepth || !fmDepth) return;
   if (ac.state === "suspended") void ac.resume();
-  if (!state || !state.active) {
-    master.gain.setTargetAtTime(0, ac.currentTime, 0.04);
-    amDepth.gain.setTargetAtTime(0, ac.currentTime, 0.04);
-    fmDepth.gain.setTargetAtTime(0, ac.currentTime, 0.04);
-    return;
-  }
   const snr = Math.max(0, Math.min(1, (state.snrDb - 3) / 28));
-  const fade = state.fading ? 0.22 : 1;
-  const level = (state.volume / 100) * (0.04 + snr * 0.16) * fade;
+  const fade = state.fading ? 0.35 : 1;
+  const level = (state.volume / 100) * (0.28 + snr * 0.32) * fade;
   const now = ac.currentTime;
   const mode = state.mode % 3;
   carrier.frequency.setTargetAtTime(mode === 1 ? 420 : mode === 2 ? 880 : 680, now, 0.05);

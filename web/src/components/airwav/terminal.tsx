@@ -23,7 +23,7 @@ import { download, snapshotJson, spectrumSvg } from "@/lib/airwav/export";
 import { getTheme } from "@/lib/airwav/themes";
 import { activityOf, BANDS, formatMhz } from "@/lib/airwav/types";
 import { useAirwav } from "@/lib/airwav/store";
-import { setListen } from "@/lib/airwav/audio";
+import { armListen, setListen } from "@/lib/airwav/audio";
 import { cn } from "@/lib/utils";
 
 export function Terminal() {
@@ -174,6 +174,7 @@ export function Terminal() {
           break;
         case "a":
         case "A":
+          armListen();
           s.toggleAudio();
           break;
         case "m":
@@ -461,7 +462,13 @@ function Toolbar() {
           {paused ? <Play className="size-3.5" /> : <Pause className="size-3.5" />}
           {paused ? "Resume" : "Pause"}
         </Button>
-        <Button variant={audioActive ? "solid" : "default"} onClick={toggleAudio}>
+        <Button
+          variant={audioActive ? "solid" : "default"}
+          onClick={() => {
+            armListen();
+            toggleAudio();
+          }}
+        >
           {audioActive ? "Mute" : "Listen"}
         </Button>
         <Button onClick={cycleAudioMode}>{["AM", "FM", "NFM"][audioMode % 3]}</Button>

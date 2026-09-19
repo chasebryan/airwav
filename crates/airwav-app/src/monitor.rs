@@ -1,6 +1,6 @@
 //! Terminal audio output. A stalled player never blocks the receiver/DSP worker.
 use airwav_core::{IqBlock, ReceiverConfig};
-use airwav_dsp::audio::{AudioConfig, AudioDemodulator, AudioMode};
+use airwav_dsp::audio::{AUDIO_RATE, AudioConfig, AudioDemodulator, AudioMode};
 use airwav_record::{Event, Reader};
 use anyhow::{Context, Result, bail, ensure};
 use crossbeam_channel::{Receiver, Sender, bounded};
@@ -8,6 +8,7 @@ use std::{
     collections::VecDeque,
     fs::File,
     io::{Read, Write},
+    path::PathBuf,
     process::{Child, Command, Stdio},
     sync::{
         Arc, Mutex,
@@ -111,64 +112,102 @@ fn stop_player(child: &Mutex<Child>) {
     }
 }
 fn player() -> Result<(Child, &'static str)> {
+    let pipewire = pipewire_socket_present();
     let mut last_fail = String::new();
-    for &(program, args) in PLAYERS {
-        match spawn_player(program, args) {
-            Ok(Some(child)) => return Ok((child, program)),
+    for spec in PLAYERS {
+        if spec.program == "pw-cat" && !pipewire {
+            continue;
+        }
+        match spawn_player(spec) {
+            Ok(Some(child)) => return Ok((child, spec.program)),
             Ok(None) => continue,
             Err(error) => last_fail = error.to_string(),
         }
     }
     if last_fail.is_empty() {
         bail!(
-            "No audio player found; install pipewire-utils (pw-cat), pulseaudio-utils (paplay), alsa-utils (aplay), or ffplay"
+            "No audio player found; install pulseaudio-utils (paplay), pipewire-utils (pw-cat), alsa-utils (aplay), or ffplay"
         );
     }
     bail!("Audio player failed to start: {last_fail}")
 }
 
-const PLAYERS: &[(&str, &[&str])] = &[
-    (
-        "pw-cat",
-        &[
-            "--playback",
-            "--raw",
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Container {
+    Wav,
+    Raw,
+}
+
+struct PlayerSpec {
+    program: &'static str,
+    args: &'static [&'static str],
+    container: Container,
+}
+
+// paplay first: Pulse and pipewire-pulse (Kicksecure, Fedora). pw-cat only when a
+// PipeWire socket exists — otherwise it can sit alive on a missing server and
+// block fallback. WAV XOR raw: never both. No --latency; "100ms" is not portable.
+const PLAYERS: &[PlayerSpec] = &[
+    PlayerSpec {
+        program: "paplay",
+        args: &[],
+        container: Container::Wav,
+    },
+    PlayerSpec {
+        program: "pw-cat",
+        args: &["-p", "--format=s16", "--rate=48000", "--channels=1", "-"],
+        container: Container::Wav,
+    },
+    PlayerSpec {
+        program: "pw-cat",
+        args: &[
+            "-p",
+            "-a",
             "--format=s16",
             "--rate=48000",
             "--channels=1",
-            "--latency=100ms",
             "-",
         ],
-    ),
-    (
-        "paplay",
-        &[
+        container: Container::Raw,
+    },
+    PlayerSpec {
+        program: "paplay",
+        args: &[
             "--raw",
             "--format=s16le",
             "--rate=48000",
             "--channels=1",
-            "--latency-msec=100",
             "--stream-name=AIRWAV",
         ],
-    ),
-    (
-        "aplay",
-        &[
-            "-q",
-            "-t",
-            "raw",
+        container: Container::Raw,
+    },
+    PlayerSpec {
+        program: "aplay",
+        args: &["-q", "-t", "wav", "-f", "S16_LE", "-r", "48000", "-c", "1"],
+        container: Container::Wav,
+    },
+    PlayerSpec {
+        program: "aplay",
+        args: &["-q", "-t", "raw", "-f", "S16_LE", "-r", "48000", "-c", "1"],
+        container: Container::Raw,
+    },
+    PlayerSpec {
+        program: "ffplay",
+        args: &[
+            "-nodisp",
+            "-autoexit",
+            "-loglevel",
+            "error",
             "-f",
-            "S16_LE",
-            "-r",
-            "48000",
-            "-c",
-            "1",
-            "--buffer-time=100000",
+            "wav",
+            "-i",
+            "pipe:0",
         ],
-    ),
-    (
-        "ffplay",
-        &[
+        container: Container::Wav,
+    },
+    PlayerSpec {
+        program: "ffplay",
+        args: &[
             "-nodisp",
             "-autoexit",
             "-loglevel",
@@ -182,12 +221,41 @@ const PLAYERS: &[(&str, &[&str])] = &[
             "-i",
             "pipe:0",
         ],
-    ),
+        container: Container::Raw,
+    },
 ];
 
-fn spawn_player(program: &str, args: &[&str]) -> Result<Option<Child>> {
-    let mut child = match Command::new(program)
-        .args(args)
+fn pipewire_socket_present() -> bool {
+    let runtime = std::env::var_os("PIPEWIRE_RUNTIME_DIR")
+        .or_else(|| std::env::var_os("XDG_RUNTIME_DIR"))
+        .map(PathBuf::from);
+    let Some(runtime) = runtime else {
+        return false;
+    };
+    runtime.join("pipewire-0").exists()
+}
+
+fn streaming_wav_header() -> [u8; 44] {
+    let mut header = [0u8; 44];
+    header[0..4].copy_from_slice(b"RIFF");
+    header[4..8].copy_from_slice(&u32::MAX.to_le_bytes());
+    header[8..12].copy_from_slice(b"WAVE");
+    header[12..16].copy_from_slice(b"fmt ");
+    header[16..20].copy_from_slice(&16u32.to_le_bytes());
+    header[20..22].copy_from_slice(&1u16.to_le_bytes());
+    header[22..24].copy_from_slice(&1u16.to_le_bytes());
+    header[24..28].copy_from_slice(&AUDIO_RATE.to_le_bytes());
+    header[28..32].copy_from_slice(&(AUDIO_RATE * 2).to_le_bytes());
+    header[32..34].copy_from_slice(&2u16.to_le_bytes());
+    header[34..36].copy_from_slice(&16u16.to_le_bytes());
+    header[36..40].copy_from_slice(b"data");
+    header[40..44].copy_from_slice(&u32::MAX.to_le_bytes());
+    header
+}
+
+fn spawn_player(spec: &PlayerSpec) -> Result<Option<Child>> {
+    let mut child = match Command::new(spec.program)
+        .args(spec.args)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -195,10 +263,20 @@ fn spawn_player(program: &str, args: &[&str]) -> Result<Option<Child>> {
     {
         Ok(child) => child,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(e).with_context(|| format!("Start audio player {program}")),
+        Err(e) => {
+            return Err(e).with_context(|| format!("Start audio player {}", spec.program));
+        }
     };
-    // pw-cat without --raw dies immediately: libsndfile tries to open "-" as a WAV.
-    thread::sleep(Duration::from_millis(40));
+    if spec.container == Container::Wav
+        && let Some(stdin) = child.stdin.as_mut()
+    {
+        let _ = stdin.write_all(&streaming_wav_header());
+        let _ = stdin.flush();
+    }
+    // libsndfile sniffs stdin as soon as the process starts. Without a header
+    // (or -a/--raw) it reports "Format not recognised" for "-". Wait long
+    // enough to see an immediate option/device failure before committing.
+    thread::sleep(Duration::from_millis(150));
     match child.try_wait() {
         Ok(None) => Ok(Some(child)),
         Ok(Some(status)) => {
@@ -212,12 +290,12 @@ fn spawn_player(program: &str, args: &[&str]) -> Result<Option<Child>> {
                 .filter(|c| !c.is_control())
                 .take(160)
                 .collect::<String>();
-            bail!("{program} exited {status} {detail}");
+            bail!("{} exited {status} {detail}", spec.program);
         }
         Err(e) => {
             let _ = child.kill();
             let _ = child.wait();
-            Err(e).with_context(|| format!("Wait for audio player {program}"))
+            Err(e).with_context(|| format!("Wait for audio player {}", spec.program))
         }
     }
 }
@@ -511,24 +589,52 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pipewire_player_requests_raw_pcm_not_a_sound_file() {
-        let args = PLAYERS
-            .iter()
-            .find(|(name, _)| *name == "pw-cat")
-            .expect("pw-cat is the preferred PipeWire player")
-            .1;
-        assert!(
-            args.contains(&"--raw"),
-            "pw-cat must not hand stdin to libsndfile: {args:?}"
-        );
-        assert!(args.contains(&"--playback"), "{args:?}");
-        assert!(args.contains(&"--format=s16"), "{args:?}");
-        assert!(args.contains(&"-"), "{args:?}");
+    fn streaming_wav_header_is_48k_mono_s16le() {
+        let header = streaming_wav_header();
+        assert_eq!(&header[0..4], b"RIFF");
+        assert_eq!(&header[8..12], b"WAVE");
+        assert_eq!(&header[12..16], b"fmt ");
+        assert_eq!(&header[20..22], 1u16.to_le_bytes());
+        assert_eq!(&header[22..24], 1u16.to_le_bytes());
+        assert_eq!(&header[24..28], 48_000u32.to_le_bytes());
+        assert_eq!(&header[28..32], 96_000u32.to_le_bytes());
+        assert_eq!(&header[32..34], 2u16.to_le_bytes());
+        assert_eq!(&header[34..36], 16u16.to_le_bytes());
+        assert_eq!(&header[36..40], b"data");
+        assert_eq!(header.len(), 44);
+    }
+
+    #[test]
+    fn player_table_uses_wav_or_raw_never_both() {
+        assert_eq!(PLAYERS[0].program, "paplay");
+        assert_eq!(PLAYERS[0].container, Container::Wav);
+        let pw: Vec<_> = PLAYERS.iter().filter(|p| p.program == "pw-cat").collect();
+        assert_eq!(pw.len(), 2);
+        assert_eq!(pw[0].container, Container::Wav);
+        assert!(!pw[0].args.iter().any(|a| *a == "-a" || *a == "--raw"));
+        assert_eq!(pw[1].container, Container::Raw);
+        assert!(pw[1].args.contains(&"-a"));
         assert!(
             PLAYERS
                 .iter()
-                .any(|(name, args)| *name == "paplay" && args.contains(&"--raw")),
-            "paplay must also request raw PCM"
+                .all(|p| !p.args.iter().any(|a| a.contains("latency"))),
+            "pw-cat --latency=100ms is not portable: {:?}",
+            PLAYERS.iter().map(|p| p.args).collect::<Vec<_>>()
+        );
+        for spec in PLAYERS {
+            if spec.container == Container::Wav {
+                assert!(
+                    !spec.args.contains(&"--raw") && !spec.args.contains(&"-a"),
+                    "{} must not mix WAV stdin with --raw/-a: {:?}",
+                    spec.program,
+                    spec.args
+                );
+            }
+        }
+        assert!(
+            PLAYERS
+                .iter()
+                .any(|p| p.program == "paplay" && p.container == Container::Raw)
         );
     }
 

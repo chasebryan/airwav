@@ -24,13 +24,15 @@ def exercise(binary, args, root, fail=False, stall=False, rapid=False):
     root.mkdir()
     bins = root / "bin"
     bins.mkdir()
-    player = bins / "pw-cat"
-    player.write_text(f"#!{sys.executable}\n" + (
+    script = (
         "import sys\nsys.stderr.write('test-player-device-unavailable\\n')\nsys.exit(3)\n" if fail else
         "import fcntl,time\ntry: fcntl.fcntl(0,fcntl.F_SETPIPE_SZ,4096)\nexcept OSError: pass\ntime.sleep(60)\n" if stall else
         "import os,time\nwith open(os.environ['AIRWAV_TEST_PCM'], 'ab', buffering=0) as f:\n while True:\n  b=os.read(0,4096)\n  if not b: break\n  f.write(b)\n  time.sleep(len(b)/96000)\n"
-    ))
-    player.chmod(0o755)
+    )
+    for name in ("pw-cat", "paplay", "aplay", "ffplay"):
+        player = bins / name
+        player.write_text(f"#!{sys.executable}\n" + script)
+        player.chmod(0o755)
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 42, 132, 0, 0))
     env = os.environ.copy()
