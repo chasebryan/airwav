@@ -9,8 +9,6 @@ use ratatui::{
     widgets::{Block, Paragraph},
 };
 
-pub(crate) use crate::panels::evidence_lines;
-
 pub fn draw(frame: &mut Frame, ui: &mut Ui) {
     let area = frame.area();
     let t = ui.theme.clone();
