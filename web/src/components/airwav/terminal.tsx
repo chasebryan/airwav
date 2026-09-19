@@ -15,13 +15,15 @@ import {
   Radio,
 } from "lucide-react";
 import { SpectrumPlot, WaterfallPlot } from "./plots";
-import { EvidencePanel, IslandList, Overlay } from "./panels";
+import { EvidencePanel, FrameRail, IslandList, Overlay } from "./panels";
+import { TunerBar } from "./tuner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { download, snapshotJson, spectrumSvg } from "@/lib/airwav/export";
 import { getTheme } from "@/lib/airwav/themes";
-import { BANDS, formatMhz } from "@/lib/airwav/types";
+import { activityOf, BANDS, formatMhz } from "@/lib/airwav/types";
 import { useAirwav } from "@/lib/airwav/store";
+import { setListen } from "@/lib/airwav/audio";
 import { cn } from "@/lib/utils";
 
 export function Terminal() {
@@ -36,8 +38,31 @@ export function Terminal() {
 
   useEffect(() => {
     start();
-    return () => stop();
+    return () => {
+      stop();
+      setListen(null);
+    };
   }, [start, stop]);
+
+  const audioActive = useAirwav((s) => s.audioActive);
+  const audioMode = useAirwav((s) => s.audioMode);
+  const audioVolume = useAirwav((s) => s.audioVolume);
+  const snapshot = useAirwav((s) => s.snapshot);
+  const selected = useAirwav((s) => s.selected);
+  useEffect(() => {
+    const island = snapshot?.islands[selected];
+    setListen(
+      audioActive
+        ? {
+            active: true,
+            mode: audioMode,
+            volume: audioVolume,
+            snrDb: island?.snrDb ?? 0,
+            fading: island ? activityOf(island.state) === "FADING" : false,
+          }
+        : null,
+    );
+  }, [audioActive, audioMode, audioVolume, snapshot, selected]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -50,10 +75,15 @@ export function Terminal() {
         return;
       }
       if (s.overlay && key !== "?" && key !== "F12") return;
+      if (key === "/" ) {
+        e.preventDefault();
+        document.getElementById("aw-vfo")?.focus();
+        return;
+      }
       switch (key) {
         case "q":
         case "Q":
-          s.resetSession();
+          s.requestQuit();
           break;
         case "r":
         case "R":
@@ -61,7 +91,7 @@ export function Terminal() {
           break;
         case "c":
         case "C":
-          if (e.ctrlKey) s.resetSession();
+          if (e.ctrlKey) s.requestQuit();
           else s.captureIq();
           break;
         case " ":
@@ -82,13 +112,37 @@ export function Terminal() {
         case "ArrowRight":
           s.setPan(s.pan + 0.1 / s.zoom);
           break;
+        case "Home":
+          e.preventDefault();
+          s.jumpVisible("home");
+          break;
+        case "End":
+          e.preventDefault();
+          s.jumpVisible("end");
+          break;
+        case "PageUp":
+          e.preventDefault();
+          s.jumpVisible(-8);
+          break;
+        case "PageDown":
+          e.preventDefault();
+          s.jumpVisible(8);
+          break;
+        case "Tab":
+          e.preventDefault();
+          s.cycleFocus(e.shiftKey ? -1 : 1);
+          break;
         case "+":
         case "=":
-          s.setZoom(s.zoom * 2);
+          s.zoomAt(2, s.hoverHz === null ? 0.5 : s.hoverFrac);
           break;
         case "-":
         case "_":
-          s.setZoom(s.zoom / 2);
+          s.zoomAt(0.5, s.hoverHz === null ? 0.5 : s.hoverFrac);
+          break;
+        case "z":
+        case "Z":
+          s.zoomToSelected();
           break;
         case "Enter":
         case "i":
@@ -118,6 +172,32 @@ export function Terminal() {
         case "T":
           s.cycleTheme();
           break;
+        case "a":
+        case "A":
+          s.toggleAudio();
+          break;
+        case "m":
+        case "M":
+          s.cycleAudioMode();
+          break;
+        case "9":
+          s.setAudioVolume(s.audioVolume - 10);
+          break;
+        case "0":
+          s.setAudioVolume(s.audioVolume + 10);
+          break;
+        case "o":
+        case "O":
+          s.toggleSort();
+          break;
+        case "f":
+        case "F":
+          s.toggleHideFading();
+          break;
+        case "k":
+        case "K":
+          s.setPeakHold(!s.peakHold);
+          break;
         case "l":
         case "L":
           s.toggleLock();
@@ -126,8 +206,37 @@ export function Terminal() {
         case "P":
           s.toggleReplay();
           break;
+        case "n":
+          s.stepTune(-1);
+          break;
+        case "N":
         case ".":
-          s.stepReplay();
+          if (key === "." && s.replay) {
+            s.stepReplay();
+            break;
+          }
+          if (key === "N" || key === ".") s.stepTune(1);
+          break;
+        case ",":
+          s.stepTune(-1);
+          break;
+        case "u":
+          s.tuneToCursor();
+          break;
+        case "U":
+          s.tuneToSelected();
+          break;
+        case "y":
+        case "Y":
+          s.toggleScan();
+          break;
+        case "v":
+        case "V":
+          s.setOverlay("frames");
+          break;
+        case "/":
+          e.preventDefault();
+          document.getElementById("aw-vfo")?.focus();
           break;
         case "[":
           s.jumpEvent(-1);
@@ -161,6 +270,7 @@ export function Terminal() {
   return (
     <div className="relative flex h-dvh min-h-0 flex-col overflow-hidden bg-bg text-fg">
       <Header />
+      <TunerBar />
       <MainStage />
       <Toolbar />
       <StatusBar />
@@ -179,30 +289,45 @@ function Header() {
   const replay = useAirwav((s) => s.replay);
   const speed = useAirwav((s) => s.speed);
   const band = useAirwav((s) => s.band);
+  const scanning = useAirwav((s) => s.scanning);
   const demo = useAirwav((s) => s.demo);
   const hoverHz = useAirwav((s) => s.hoverHz);
   const hoverDbfs = useAirwav((s) => s.hoverDbfs);
   const lockedHz = useAirwav((s) => s.lockedHz);
+  const audioActive = useAirwav((s) => s.audioActive);
+  const audioMode = useAirwav((s) => s.audioMode);
+  const audioVolume = useAirwav((s) => s.audioVolume);
+  const selected = useAirwav((s) => s.selected);
   const now = useNow(recording);
   const elapsed =
     recording && recordStartedAt ? ((now - recordStartedAt) / 1000).toFixed(1) : null;
   const bandMeta = BANDS.find((b) => b.id === band);
+  const ring = snapshot
+    ? snapshot.metrics.ringCapacityBytes
+      ? snapshot.metrics.ringBytes / snapshot.metrics.ringCapacityBytes
+      : 0
+    : 0;
+  const island = snapshot?.islands[selected];
+  const vu = island ? Math.max(0, Math.min(1, (island.peakDbfs + 80) / 50)) : 0;
+  const modes = ["AM", "FM", "NFM"] as const;
+  const liveCount = snapshot?.islands.filter((i) => activityOf(i.state) === "LIVE").length ?? 0;
+  const fadingCount = (snapshot?.islands.length ?? 0) - liveCount;
 
   return (
-    <header className="shrink-0 border-b border-border px-4 py-3 aw-enter">
+    <header className="shrink-0 border-b border-border px-3 py-2 sm:px-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-baseline gap-3">
           <h1 className="font-mono text-sm font-semibold tracking-[0.28em] text-fg">
-            A I R W A V
+            AIRWAV
           </h1>
-          <span className="hidden font-mono text-[11px] tracking-[0.14em] text-muted uppercase sm:inline">
-            / RF observation terminal
+          <span className="hidden font-mono text-xs tracking-[0.14em] text-muted uppercase sm:inline">
+            / RF observation
           </span>
         </div>
         <Badge className="border-unknown/50 text-unknown">{source}</Badge>
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-muted tabular-nums">
-        <span>RTL-SDR BLOG V4 · fixture</span>
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-xs text-muted tabular-nums">
+        <span>{source}</span>
         <span>
           {snapshot
             ? `${formatMhz(snapshot.receiver.centerHz)} MHz`
@@ -211,17 +336,22 @@ function Header() {
               : "—"}
         </span>
         <span>{snapshot ? `${(snapshot.receiver.sampleRate / 1e6).toFixed(2)} MS/s` : "2.56 MS/s"}</span>
-        <span>
-          {replay ? `REPLAY ${speed.toFixed(2)}×` : "MANUAL WINDOW"}
+        <span>{replay ? `REPLAY ${speed.toFixed(2)}×` : scanning ? "SCAN" : "VFO"}</span>
+        <span className="inline-flex items-center gap-2 text-prism">
+          RING
+          <span className="inline-block h-1.5 w-16 overflow-hidden rounded-full bg-fg/10">
+            <span className="block h-full bg-prism" style={{ width: `${Math.round(ring * 100)}%` }} />
+          </span>
+          {Math.round(ring * 100)}%
         </span>
-        <span>USB loss: unavailable</span>
+        <span>USB n/a</span>
         {hoverHz !== null && hoverDbfs !== null && (
           <span className="text-accent">
             {formatMhz(hoverHz)} MHz · {hoverDbfs.toFixed(1)} dBFS
           </span>
         )}
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-3 font-mono text-[11px] uppercase tracking-wider">
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs uppercase tracking-wider">
         <span
           className={cn(
             "inline-flex items-center gap-1.5",
@@ -235,8 +365,28 @@ function Header() {
           {captureActive ? "Event IQ · collecting" : "Receive only"}
         </span>
         {paused && <span className="text-unknown">View paused</span>}
-        {lockedHz !== null && (
-          <span className="text-prism">Lock {formatMhz(lockedHz)} MHz</span>
+        <span className="text-live">{liveCount} live</span>
+        <span className="text-muted">{fadingCount} fading</span>
+        <span className="text-prism">
+          {snapshot?.islands.filter((i) => i.verified).length ?? 0} crc
+        </span>
+        <span className="text-unknown">
+          {(snapshot?.islands.length ?? 0) - (snapshot?.islands.filter((i) => i.verified).length ?? 0)} unk
+        </span>
+        <span className={audioActive ? "text-prism" : "text-muted"}>
+          {modes[audioMode % 3]} {audioVolume}%
+          {audioActive && lockedHz !== null ? ` · lock ${formatMhz(lockedHz)}` : ""}
+        </span>
+        {audioActive && (
+          <span className="inline-flex items-center gap-1.5 text-accent normal-case tracking-normal">
+            VU
+            <span className="inline-block h-1.5 w-16 overflow-hidden rounded-full bg-fg/10">
+              <span
+                className="block h-full bg-accent"
+                style={{ width: `${Math.round(vu * 100)}%` }}
+              />
+            </span>
+          </span>
         )}
         {demo && <span className="text-accent">Demo view</span>}
       </div>
@@ -259,9 +409,10 @@ function MainStage() {
         <SpectrumPlot />
         <WaterfallPlot />
       </div>
-      <div className={cn("grid min-h-0 gap-2", demo ? "hidden lg:grid lg:grid-rows-2" : "grid-rows-2")}>
+      <div className={cn("grid min-h-0 gap-2", demo ? "hidden lg:grid lg:grid-rows-2" : "grid-rows-[minmax(0,1fr)_minmax(0,0.9fr)_minmax(132px,0.7fr)]")}>
         <IslandList />
         <EvidencePanel />
+        {!demo && <FrameRail />}
       </div>
     </div>
   );
@@ -277,6 +428,13 @@ function Toolbar() {
   const captureIq = useAirwav((s) => s.captureIq);
   const togglePause = useAirwav((s) => s.togglePause);
   const toggleLock = useAirwav((s) => s.toggleLock);
+  const toggleAudio = useAirwav((s) => s.toggleAudio);
+  const cycleAudioMode = useAirwav((s) => s.cycleAudioMode);
+  const setAudioVolume = useAirwav((s) => s.setAudioVolume);
+  const audioActive = useAirwav((s) => s.audioActive);
+  const audioMode = useAirwav((s) => s.audioMode);
+  const audioVolume = useAirwav((s) => s.audioVolume);
+  const zoomToSelected = useAirwav((s) => s.zoomToSelected);
   const toggleReplay = useAirwav((s) => s.toggleReplay);
   const cycleTheme = useAirwav((s) => s.cycleTheme);
   const resetSession = useAirwav((s) => s.resetSession);
@@ -303,6 +461,13 @@ function Toolbar() {
           {paused ? <Play className="size-3.5" /> : <Pause className="size-3.5" />}
           {paused ? "Resume" : "Pause"}
         </Button>
+        <Button variant={audioActive ? "solid" : "default"} onClick={toggleAudio}>
+          {audioActive ? "Mute" : "Listen"}
+        </Button>
+        <Button onClick={cycleAudioMode}>{["AM", "FM", "NFM"][audioMode % 3]}</Button>
+        <Button onClick={() => setAudioVolume(audioVolume - 10)}>Vol −</Button>
+        <Button onClick={() => setAudioVolume(audioVolume + 10)}>Vol +</Button>
+        <Button onClick={zoomToSelected}>Zoom island</Button>
         <Button onClick={toggleLock}>
           {lockedHz !== null ? <Unlock className="size-3.5" /> : <Lock className="size-3.5" />}
           {lockedHz !== null ? "Unlock" : "Lock"}
@@ -320,6 +485,9 @@ function Toolbar() {
         </Button>
         <Button variant="ghost" onClick={() => setOverlay("events")}>
           Events
+        </Button>
+        <Button variant="ghost" onClick={() => setOverlay("frames")}>
+          Frames
         </Button>
         <Button variant="ghost" onClick={() => setOverlay("diagnostics")}>
           <Gauge className="size-3.5" />
@@ -356,7 +524,7 @@ function StatusBar() {
     <footer className="flex shrink-0 flex-col gap-0.5 border-t border-border px-4 py-2 font-mono text-[11px] text-muted aw-enter aw-enter-delay-3 sm:flex-row sm:items-center sm:justify-between">
       <p className="truncate text-fg/80">{status}</p>
       <p className="hidden sm:block">
-        ? Help · ↑↓ Select · Enter Evidence · T Theme · F10 Demo · Q Reset
+        ? Help · / VFO · n/N step · Shift-click tune · V frames · A Listen · T Theme · Q Reset
         {snapshot ? ` · ${snapshot.islands.length} islands` : ""}
       </p>
     </footer>

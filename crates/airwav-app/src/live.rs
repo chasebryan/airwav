@@ -94,6 +94,46 @@ pub(crate) fn live(config: Config, data: &Path, quit: &AtomicBool) -> Result<()>
                         ui.status = "Control queue busy".into();
                     }
                 }
+                Action::Tune(hz) => {
+                    if runtime
+                        .control
+                        .try_send(Control::Tune { center_hz: hz })
+                        .is_err()
+                    {
+                        ui.status = "Control queue busy".into();
+                    } else {
+                        ui.note(format!("Retune requested {:.6} MHz", hz as f64 / 1e6));
+                    }
+                }
+                Action::TuneStep(delta) => {
+                    let current = ui
+                        .snapshot
+                        .as_ref()
+                        .map(|s| s.receiver.center_hz)
+                        .unwrap_or(136_000_000);
+                    let hz = (current as i64 + delta).clamp(500_000, 1_766_000_000) as u32;
+                    if runtime
+                        .control
+                        .try_send(Control::Tune { center_hz: hz })
+                        .is_err()
+                    {
+                        ui.status = "Control queue busy".into();
+                    }
+                }
+                Action::Gain { gain_tenth_db } => {
+                    if runtime
+                        .control
+                        .try_send(Control::Gain { gain_tenth_db })
+                        .is_err()
+                    {
+                        ui.status = "Control queue busy".into();
+                    }
+                }
+                Action::Ppm { ppm } => {
+                    if runtime.control.try_send(Control::Ppm { ppm }).is_err() {
+                        ui.status = "Control queue busy".into();
+                    }
+                }
                 Action::Screenshot => {
                     let directory = data.join("screenshots");
                     fs::create_dir_all(&directory)?;

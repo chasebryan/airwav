@@ -44,6 +44,10 @@ impl SpectrumEngine {
             discontinuities: 0,
         })
     }
+    pub fn reset_epoch(&mut self) {
+        self.pending.clear();
+        self.expected_sample = None;
+    }
     pub fn push(
         &mut self,
         block: &IqBlock,
@@ -138,6 +142,12 @@ impl Detector {
             candidates_omitted: 0,
         }
     }
+    pub fn reset_epoch(&mut self, sample_rate: u32) {
+        self.next_id = 1;
+        self.tracked.clear();
+        self.expiry_samples = sample_rate as u64;
+        self.candidates_omitted = 0;
+    }
     pub fn update(&mut self, spectrum: &Spectrum) -> Vec<SignalIsland> {
         let p = &spectrum.power_dbfs;
         if p.len() < 16 {
@@ -190,7 +200,9 @@ impl Detector {
                 peak_dbfs: peak,
                 snr_db: peak - local[(start + end - 1) / 2 / 128],
                 observations: 1,
-                state: "UNKNOWN".into(),
+                state: "LIVE".into(),
+                protocol: "UNKNOWN".into(),
+                verified: false,
             });
         }
         self.tracked.retain(|old| {
@@ -216,6 +228,8 @@ impl Detector {
                 new.id = old.id;
                 new.first_sample = old.first_sample;
                 new.observations = old.observations + 1;
+                new.protocol = old.protocol.clone();
+                new.verified = old.verified;
                 used[j] = true;
             } else {
                 new.id = self.next_id;
@@ -225,7 +239,7 @@ impl Detector {
         for (j, old) in self.tracked.iter().enumerate() {
             if !used[j] {
                 let mut fading = old.clone();
-                fading.state = "FADING / UNKNOWN".into();
+                fading.state = "FADING".into();
                 measured.push(fading);
             }
         }
@@ -242,6 +256,11 @@ impl Detector {
         self.tracked = measured.clone();
         measured
     }
+
+    /// Persist protocol tags applied after detection (CRC annotation mutates the returned islands).
+    pub fn commit(&mut self, islands: &[SignalIsland]) {
+        self.tracked = islands.to_vec();
+    }
 }
 
 /// Bounded block ring. Blocks remain shared during event persistence.
@@ -257,6 +276,10 @@ impl IqRing {
             bytes: 0,
             capacity: capacity - capacity % 2,
         }
+    }
+    pub fn clear(&mut self) {
+        self.blocks.clear();
+        self.bytes = 0;
     }
     pub fn push(&mut self, block: Arc<IqBlock>) {
         if self.capacity == 0 {
@@ -486,6 +509,27 @@ mod tests {
         moved.power_dbfs.fill(-100.);
         moved.first_sample += c.sample_rate as u64 + 1;
         assert!(d.update(&moved).is_empty());
+    }
+    #[test]
+    fn live_and_fading_are_distinct_activity_states() {
+        let c = ReceiverConfig::default();
+        let mut fft = SpectrumEngine::new(2048).unwrap();
+        let mut d = Detector::new(12., c.sample_rate);
+        let s = fft
+            .push(&tones(2048, &[(0.0625, 0.5)]), &c)
+            .unwrap()
+            .unwrap();
+        let live = d.update(&s);
+        assert!(
+            live.iter().any(|i| i.state == "LIVE" && i.snr_db > 20.),
+            "{live:?}"
+        );
+        let mut gone = s.clone();
+        gone.power_dbfs.fill(-100.);
+        gone.first_sample = 4096;
+        let fading = d.update(&gone);
+        assert!(fading.iter().any(|i| i.state == "FADING"), "{fading:?}");
+        assert!(fading.iter().all(|i| i.state != "UNKNOWN"));
     }
     #[test]
     fn seeded_noise_has_no_persistent_islands() {

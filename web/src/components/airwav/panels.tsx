@@ -1,9 +1,22 @@
-import { BANDS } from "@/lib/airwav/types";
+import { BANDS, DECODER_KEYS, DECODER_LABEL, PROTOCOL_TAG, activityOf } from "@/lib/airwav/types";
 import { formatKhz, formatMhz, formatSamples } from "@/lib/airwav/types";
 import { useAirwav } from "@/lib/airwav/store";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
+
+function dwell(first: number, last: number, rate: number): string {
+  if (!rate) return "—";
+  const seconds = (last - first) / rate;
+  if (seconds < 1) return "<1s";
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  return `${(seconds / 60).toFixed(0)}m`;
+}
+
+function protoTag(protocol: string, verified: boolean): string {
+  if (!verified) return "UNK";
+  return PROTOCOL_TAG[protocol as keyof typeof PROTOCOL_TAG] ?? "UNK";
+}
 
 export function IslandList() {
   const snapshot = useAirwav((s) => s.snapshot);
@@ -11,7 +24,17 @@ export function IslandList() {
   const selectIndex = useAirwav((s) => s.selectIndex);
   const setOverlay = useAirwav((s) => s.setOverlay);
   const focused = useAirwav((s) => s.focused);
+  const setFocused = useAirwav((s) => s.setFocused);
+  const sortSnr = useAirwav((s) => s.sortSnr);
+  const hideFading = useAirwav((s) => s.hideFading);
+  const toggleSort = useAirwav((s) => s.toggleSort);
   const islands = snapshot?.islands ?? [];
+  const indexed = islands
+    .map((island, i) => ({ island, i }))
+    .filter(({ island }) => !hideFading || activityOf(island.state) !== "FADING");
+  if (sortSnr) {
+    indexed.sort((a, b) => b.island.snrDb - a.island.snrDb);
+  }
 
   return (
     <section
@@ -19,52 +42,66 @@ export function IslandList() {
         "flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border bg-panel",
         focused === 2 ? "border-accent" : "border-border",
       )}
+      onMouseDown={() => setFocused(2)}
     >
       <header className="flex items-center justify-between border-b border-border px-3 py-1.5">
-        <h2 className="font-mono text-[10px] tracking-[0.18em] text-muted uppercase">
-          03 / Signal Islands
+        <h2 className="font-mono text-xs tracking-[0.18em] text-muted uppercase">
+          03 / Islands
         </h2>
-        <span className="font-mono text-[10px] text-muted tabular-nums">
-          {islands.length} / 256
-        </span>
+        <button
+          type="button"
+          onClick={toggleSort}
+          className="font-mono text-xs text-muted tabular-nums hover:text-accent"
+        >
+          {islands.length} / 256 · {sortSnr ? "SNR" : "FREQ"}
+        </button>
       </header>
-      <div className="grid grid-cols-[18px_1fr_64px_88px] gap-x-2 px-3 py-1.5 font-mono text-[10px] tracking-wider text-muted uppercase">
+      <div className="grid grid-cols-[14px_minmax(0,1fr)_52px_48px_56px_48px] gap-x-2 px-3 py-1.5 font-mono text-xs tracking-wider text-muted uppercase">
         <span />
         <span>MHz</span>
+        <span className="text-right">kHz</span>
         <span className="text-right">SNR</span>
-        <span>State</span>
+        <span>Act</span>
+        <span>Prot</span>
       </div>
       <ul className="min-h-0 flex-1 overflow-auto px-1 pb-2">
-        {islands.length === 0 ? (
+        {indexed.length === 0 ? (
           <li className="px-3 py-4 font-mono text-xs text-muted">
             No activity above threshold
           </li>
         ) : (
-          islands.map((island, i) => (
-            <li key={island.id}>
-              <button
-                type="button"
-                onClick={() => selectIndex(i)}
-                onDoubleClick={() => {
-                  selectIndex(i);
-                  setOverlay("evidence");
-                }}
-                className={cn(
-                  "grid w-full grid-cols-[18px_1fr_64px_88px] items-center gap-x-2 rounded-sm px-2 py-2 text-left font-mono text-xs tabular-nums",
-                  i === selected
-                    ? "bg-accent/10 text-selected"
-                    : "text-unknown hover:bg-fg/5",
-                )}
-              >
-                <span className="text-accent">{i === selected ? "▌" : ""}</span>
-                <span>{formatMhz(island.centerHz)}</span>
-                <span className="text-right">{island.snrDb.toFixed(1)} dB</span>
-                <span>
-                  {island.state.startsWith("FADING") ? "FADING" : "UNKNOWN"}
-                </span>
-              </button>
-            </li>
-          ))
+          indexed.map(({ island, i }) => {
+            const act = activityOf(island.state);
+            return (
+              <li key={island.id}>
+                <button
+                  type="button"
+                  onClick={() => selectIndex(i)}
+                  onDoubleClick={() => {
+                    selectIndex(i);
+                    setOverlay("evidence");
+                  }}
+                  className={cn(
+                    "grid w-full grid-cols-[14px_minmax(0,1fr)_52px_48px_56px_48px] items-center gap-x-2 rounded-sm px-2 py-1.5 text-left font-mono text-xs tabular-nums min-h-10",
+                    i === selected
+                      ? "bg-accent/10 text-selected"
+                      : act === "FADING"
+                        ? "text-muted hover:bg-fg/5"
+                        : "text-live hover:bg-fg/5",
+                  )}
+                >
+                  <span className="text-accent">{i === selected ? "▌" : ""}</span>
+                  <span>{formatMhz(island.centerHz)}</span>
+                  <span className="text-right">{(island.bandwidthHz / 1000).toFixed(1)}</span>
+                  <span className="text-right">{island.snrDb.toFixed(1)}</span>
+                  <span className={act === "LIVE" ? "text-live" : "text-muted"}>{act}</span>
+                  <span className={island.verified ? "text-prism" : "text-unknown"}>
+                    {protoTag(island.protocol, island.verified)}
+                  </span>
+                </button>
+              </li>
+            );
+          })
         )}
       </ul>
     </section>
@@ -74,12 +111,30 @@ export function IslandList() {
 export function EvidencePanel() {
   const snapshot = useAirwav((s) => s.snapshot);
   const selected = useAirwav((s) => s.selected);
+  const audioActive = useAirwav((s) => s.audioActive);
+  const lockedHz = useAirwav((s) => s.lockedHz);
+  const frames = useAirwav((s) => s.frames);
   const island = snapshot?.islands[selected];
+  const act = island ? activityOf(island.state) : null;
+  const mismatch =
+    audioActive &&
+    lockedHz !== null &&
+    island &&
+    Math.round(lockedHz) !== Math.round(island.centerHz);
+  const frame = island
+    ? [...frames]
+        .reverse()
+        .find(
+          (f) =>
+            f.verified &&
+            (f.islandId === island.id || Math.abs(f.frequencyHz - island.centerHz) < 80_000),
+        )
+    : undefined;
 
   return (
     <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-border bg-panel">
       <header className="border-b border-border px-3 py-1.5">
-        <h2 className="font-mono text-[10px] tracking-[0.18em] text-muted uppercase">
+        <h2 className="font-mono text-xs tracking-[0.18em] text-muted uppercase">
           04 / Evidence
         </h2>
       </header>
@@ -98,25 +153,106 @@ export function EvidencePanel() {
             <dd className="tabular-nums">{island.snrDb.toFixed(1)} dB</dd>
             <dt className="text-muted">Observations</dt>
             <dd className="tabular-nums">{island.observations}</dd>
+            <dt className="text-muted">Dwell</dt>
+            <dd className="tabular-nums">
+              {snapshot ? dwell(island.firstSample, island.lastSample, snapshot.receiver.sampleRate) : "—"}
+            </dd>
+            <dt className="text-muted">Activity</dt>
+            <dd className={act === "LIVE" ? "text-live" : "text-muted"}>{act}</dd>
             <dt className="text-muted">Protocol</dt>
-            <dd className="text-unknown">UNKNOWN</dd>
+            <dd className={island.verified ? "text-prism" : "text-unknown"}>
+              {island.verified ? island.protocol : "UNKNOWN"}
+            </dd>
             <dt className="text-muted">Confidence</dt>
-            <dd>not established</dd>
+            <dd>{island.verified ? "CRC verified" : "not established"}</dd>
             <dt className="text-muted">Evidence</dt>
-            <dd>FFT power / local noise</dd>
+            <dd>
+              {frame?.evidence ??
+                (island.verified ? "Protocol CRC / parity" : "FFT power / local noise")}
+            </dd>
+            {frame &&
+              Object.entries(frame.fields).map(([k, v]) => (
+                <div key={k} className="contents">
+                  <dt className="text-muted">{k}</dt>
+                  <dd className="break-all text-fg">{v}</dd>
+                </div>
+              ))}
+            {frame?.rawHex ? (
+              <>
+                <dt className="text-muted">HEX</dt>
+                <dd className="break-all text-muted">{frame.rawHex}</dd>
+              </>
+            ) : null}
           </dl>
         ) : (
           <div className="space-y-2 text-muted">
             <p className="text-fg">Observe first. Conclude second.</p>
             <p>Select a measured signal to inspect it.</p>
-            <p>No protocol has been established.</p>
+            <p>Identities require a verified frame CRC.</p>
           </div>
         )}
+        {mismatch && (
+          <p className="mt-3 text-[11px] text-unknown">
+            Audio is locked to {formatMhz(lockedHz ?? 0)} MHz, not this island. Mute,
+            then Listen.
+          </p>
+        )}
+        {audioActive && act === "FADING" && !mismatch && (
+          <p className="mt-3 text-[11px] text-unknown">
+            Listening to a FADING island — the carrier may already be gone.
+          </p>
+        )}
         <p className="mt-4 text-[11px] text-muted">
-          No frame or identity decoded. SNR is a measurement, not protocol
-          confidence.
+          SNR is a measurement, not identity confidence. LIVE is current activity;
+          FADING is hysteresis. A protocol tag is CRC/parity evidence only.
         </p>
       </div>
+    </section>
+  );
+}
+
+export function FrameRail() {
+  const frames = useAirwav((s) => s.frames);
+  const setOverlay = useAirwav((s) => s.setOverlay);
+  const verified = frames.filter((f) => f.verified);
+  const recent = [...verified].reverse().slice(0, 8);
+
+  return (
+    <section className="flex min-h-0 flex-col overflow-hidden rounded-md border border-border bg-panel">
+      <header className="flex items-center justify-between border-b border-border px-3 py-1.5">
+        <h2 className="font-mono text-xs tracking-[0.18em] text-muted uppercase">
+          05 / Frames
+        </h2>
+        <button
+          type="button"
+          onClick={() => setOverlay("frames")}
+          className="font-mono text-[10px] uppercase tracking-wide text-muted hover:text-accent"
+        >
+          {verified.length} CRC
+        </button>
+      </header>
+      <ul className="min-h-0 flex-1 overflow-auto px-1 py-1">
+        {recent.length === 0 ? (
+          <li className="px-3 py-3 font-mono text-[11px] text-muted">
+            Waiting for a CRC or parity match. Tune 1090, 131.550, 144.390, 162.400 or 433.92.
+          </li>
+        ) : (
+          recent.map((f) => (
+            <li key={f.id} className="px-2 py-1.5 font-mono text-[11px]">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-prism">{f.protocol}</span>
+                <span className="tabular-nums text-muted">{formatMhz(f.frequencyHz)} MHz</span>
+              </div>
+              <p className="mt-0.5 truncate text-fg">
+                {Object.entries(f.fields)
+                  .slice(0, 3)
+                  .map(([k, v]) => `${k} ${v}`)
+                  .join(" · ")}
+              </p>
+            </li>
+          ))
+        )}
+      </ul>
     </section>
   );
 }
@@ -152,6 +288,7 @@ export function Overlay() {
         {overlay === "evidence" && <EvidencePanel />}
         {overlay === "settings" && <SettingsBody />}
         {overlay === "log" && <LogBody />}
+        {overlay === "frames" && <FramesBody />}
       </div>
     </div>
   );
@@ -162,21 +299,25 @@ function HelpBody() {
     <div className="space-y-3 font-mono text-xs leading-relaxed text-fg">
       <p className="text-accent">Observe first. Conclude second.</p>
       <ul className="space-y-1 text-muted">
-        <li>↑/↓ select · Enter / I evidence · D diagnostics · E events</li>
+        <li>/ focus VFO · Enter retune · n / N or , / . step the tuner</li>
+        <li>u tune to cursor · U tune to island · y scan · Shift-click spectrum retunes</li>
+        <li>↑/↓ select · click spectrum to pick the nearest island</li>
+        <li>Enter / I evidence · D diagnostics · E events · V frames · G log · S settings</li>
         <li>R recording · C pre/post-trigger IQ · Space pause presentation</li>
-        <li>Replay: 1–5 = 0.25× / 0.5× / 1× / 2× / 4× · . step · P replay</li>
-        <li>[ / ] jump events · +/− zoom · ←/→ pan · drag spectrum to zoom</li>
-        <li>L lock frequency · S settings · G log · T theme · F10 demo</li>
-        <li>F12 export · Esc closes overlays · Q reset session</li>
+        <li>A Listen/Mute · M AM/FM/NFM · 9/0 volume · L lock</li>
+        <li>O sort SNR/frequency · F hide fading · K peak hold</li>
+        <li>+/− zoom toward cursor · drag spectrum · Z zoom to island · Shift+wheel pan</li>
+        <li>T theme · F10 demo · F12 export · Esc close · Q reset (twice while recording)</li>
       </ul>
       <p>
-        A Signal Island is measured RF activity above a local noise estimate.
-        UNKNOWN means observed, but a protocol has not been established.
+        LIVE is current activity. FADING is one second of sample-clock hysteresis.
+        Protocol tags require CRC or parity. SNR is a measurement, not identity
+        confidence.
       </p>
       <p className="text-muted">
-        This browser build runs the DEMO FIXTURE generator and the same
-        measurement semantics as the native capture foundation. It is not a live
-        RTL-SDR Blog V4 receiver, and it does not transmit.
+        This browser build can run protocol-correct synthetic IQ or a dropped
+        unsigned IQ file. It is not a USB RTL-SDR Blog V4, and it does not transmit.
+        Native AIRWAV retunes the V4 while streaming.
       </p>
     </div>
   );
@@ -185,10 +326,15 @@ function HelpBody() {
 function DiagnosticsBody() {
   const snap = useAirwav((s) => s.snapshot);
   const source = useAirwav((s) => s.source);
+  const audioActive = useAirwav((s) => s.audioActive);
+  const centerHz = useAirwav((s) => s.centerHz);
+  const frames = useAirwav((s) => s.frames);
   const m = snap?.metrics;
   const rows = m
     ? [
         ["Source", source],
+        ["Tuner", `${formatMhz(centerHz)} MHz`],
+        ["Audio", audioActive ? "Listen locked" : "off"],
         ["Received IQ samples", formatSamples(m.receivedSamples)],
         ["Application drops", `${m.queueDroppedSamples} samples`],
         ["USB sample loss", "unavailable in RF mode"],
@@ -203,7 +349,9 @@ function DiagnosticsBody() {
         ["Event IQ samples lost", String(m.storageDroppedIqSamples)],
         ["Signal islands", `${snap?.islands.length ?? 0} / 256`],
         ["Island candidates omitted", String(m.islandCandidatesOmitted)],
-        ["Decoder workers", "0 (not enabled in this milestone)"],
+        ["Decoder frames", String(m.decodedFrames)],
+        ["CRC-verified frames", String(m.verifiedFrames)],
+        ["Session frame log", String(frames.length)],
         ["MAX-I", "not enabled in this milestone"],
       ]
     : [["Source", source]];
@@ -234,9 +382,41 @@ function EventsBody() {
           </div>
           <p className="mt-1 text-fg">{ev.label}</p>
           <p className="mt-1 text-muted">
-            SNR {ev.snrDb.toFixed(1)} dB · {formatSamples(ev.samples)} samples · UNKNOWN
+            SNR {ev.snrDb.toFixed(1)} dB · {formatSamples(ev.samples)} samples · {ev.protocol}
           </p>
           <p className="mt-1 text-[11px] text-muted">{ev.note}</p>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function FramesBody() {
+  const frames = useAirwav((s) => s.frames);
+  if (!frames.length) {
+    return (
+      <p className="font-mono text-xs text-muted">
+        No CRC-verified frames yet. Tune 1090 MHz for Mode S, 131.550 for ACARS,
+        144.390 for APRS, 162.400 for SAME, or 433.92 for POCSAG.
+      </p>
+    );
+  }
+  return (
+    <ul className="space-y-2 font-mono text-xs">
+      {[...frames].reverse().slice(0, 40).map((f) => (
+        <li key={f.id} className="rounded-sm border border-border px-3 py-2">
+          <div className="flex items-center justify-between gap-3">
+            <span className={f.verified ? "text-prism" : "text-unknown"}>{f.protocol}</span>
+            <span className="text-muted tabular-nums">{formatMhz(f.frequencyHz)} MHz</span>
+          </div>
+          <p className="mt-1 text-fg">
+            {Object.entries(f.fields)
+              .slice(0, 4)
+              .map(([k, v]) => `${k} ${v}`)
+              .join(" · ")}
+          </p>
+          <p className="mt-1 text-[11px] text-muted">{f.evidence}</p>
+          <p className="mt-1 break-all text-[11px] text-muted">{f.rawHex}</p>
         </li>
       ))}
     </ul>
@@ -254,11 +434,19 @@ function SettingsBody() {
   const setPeakHold = useAirwav((s) => s.setPeakHold);
   const theme = useAirwav((s) => s.theme);
   const setTheme = useAirwav((s) => s.setTheme);
+  const sortSnr = useAirwav((s) => s.sortSnr);
+  const toggleSort = useAirwav((s) => s.toggleSort);
+  const hideFading = useAirwav((s) => s.hideFading);
+  const toggleHideFading = useAirwav((s) => s.toggleHideFading);
+  const sampleRate = useAirwav((s) => s.sampleRate);
+  const setSampleRate = useAirwav((s) => s.setSampleRate);
+  const decoderEnabled = useAirwav((s) => s.decoderEnabled);
+  const toggleDecoder = useAirwav((s) => s.toggleDecoder);
 
   return (
     <div className="space-y-5 font-mono text-xs">
       <fieldset>
-        <legend className="mb-2 text-muted uppercase tracking-wider">Observation window</legend>
+        <legend className="mb-2 text-muted uppercase tracking-wider">Bookmarks</legend>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {BANDS.map((b) => (
             <button
@@ -272,12 +460,50 @@ function SettingsBody() {
             >
               <div className="text-fg">{b.label}</div>
               <div className="mt-1 text-muted tabular-nums">{formatMhz(b.centerHz, 3)} MHz</div>
+              <div className="mt-1 text-muted">{b.note}</div>
             </button>
           ))}
         </div>
         <p className="mt-2 text-muted">
-          Center frequency is an observation window, not a decoder claim.
+          Bookmarks retune the VFO. Decoders arm from the actual center frequency,
+          not the bookmark name.
         </p>
+      </fieldset>
+      <fieldset>
+        <legend className="mb-2 text-muted uppercase tracking-wider">Decoders</legend>
+        <div className="flex flex-col gap-1">
+          {DECODER_KEYS.map((id) => (
+            <label key={id} className="flex h-10 items-center gap-3">
+              <input
+                type="checkbox"
+                checked={decoderEnabled[id]}
+                onChange={() => toggleDecoder(id)}
+              />
+              {DECODER_LABEL[id]} — CRC/parity required
+            </label>
+          ))}
+        </div>
+        <p className="mt-2 text-muted">
+          A disabled decoder never emits a protocol tag. Frequency coincidence is not identity.
+        </p>
+      </fieldset>
+      <fieldset>
+        <legend className="mb-2 text-muted uppercase tracking-wider">Sample rate</legend>
+        <div className="flex flex-wrap gap-2">
+          {[1_024_000, 2_048_000, 2_560_000].map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setSampleRate(n)}
+              className={cn(
+                "h-10 min-w-16 rounded-sm border px-3",
+                sampleRate === n ? "border-accent text-accent" : "border-border text-muted",
+              )}
+            >
+              {(n / 1e6).toFixed(3)} MS/s
+            </button>
+          ))}
+        </div>
       </fieldset>
       <label className="block">
         <span className="text-muted">Detection SNR · {snrDb.toFixed(0)} dB</span>
@@ -307,14 +533,28 @@ function SettingsBody() {
           ))}
         </div>
       </fieldset>
-      <label className="flex h-10 items-center gap-3">
-        <input
-          type="checkbox"
-          checked={peakHold}
-          onChange={(e) => setPeakHold(e.target.checked)}
-        />
-        Peak hold on spectrum
-      </label>
+      <div className="flex flex-col gap-2">
+        <label className="flex h-10 items-center gap-3">
+          <input
+            type="checkbox"
+            checked={peakHold}
+            onChange={(e) => setPeakHold(e.target.checked)}
+          />
+          Peak hold on spectrum (K)
+        </label>
+        <label className="flex h-10 items-center gap-3">
+          <input type="checkbox" checked={sortSnr} onChange={() => toggleSort()} />
+          Sort islands by SNR (O)
+        </label>
+        <label className="flex h-10 items-center gap-3">
+          <input
+            type="checkbox"
+            checked={hideFading}
+            onChange={() => toggleHideFading()}
+          />
+          Hide fading islands (F)
+        </label>
+      </div>
       <fieldset>
         <legend className="mb-2 text-muted uppercase tracking-wider">Theme</legend>
         <div className="flex flex-wrap gap-2">

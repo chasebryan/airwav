@@ -718,6 +718,7 @@ mod tests {
             },
             islands: vec![],
             metrics: Default::default(),
+            frames: vec![],
         }
     }
     fn source() -> Source {

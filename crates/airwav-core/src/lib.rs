@@ -187,6 +187,10 @@ pub struct SignalIsland {
     pub snr_db: f32,
     pub observations: u64,
     pub state: String,
+    #[serde(default = "unknown_protocol")]
+    pub protocol: String,
+    #[serde(default)]
+    pub verified: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -197,6 +201,24 @@ pub struct Spectrum {
     pub power_dbfs: Vec<f32>,
     pub noise_dbfs: f32,
 }
+pub fn unknown_protocol() -> String {
+    "UNKNOWN".into()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecodedFrame {
+    pub id: String,
+    pub protocol: String,
+    pub at_sample: u64,
+    pub frequency_hz: f64,
+    pub verified: bool,
+    pub confidence: String,
+    pub fields: Vec<(String, String)>,
+    pub raw_hex: String,
+    pub evidence: String,
+    pub island_id: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Snapshot {
     pub timestamp_ns: u64,
@@ -204,6 +226,8 @@ pub struct Snapshot {
     pub spectrum: Spectrum,
     pub islands: Vec<SignalIsland>,
     pub metrics: Metrics,
+    #[serde(default)]
+    pub frames: Vec<DecodedFrame>,
 }
 
 #[cfg(test)]

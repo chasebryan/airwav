@@ -43,6 +43,7 @@ fn main() -> anyhow::Result<()> {
         spectrum,
         islands: vec![],
         metrics: Metrics::default(),
+        frames: vec![],
     };
     let mut writer = Writer::create(&path, &config, Source::DemoFixture {
         description: "DEMO FIXTURE: synthetic AM 440 Hz at 135800000 Hz and mono FM 660 Hz at 136250000 Hz. No received RF or speech.".into()

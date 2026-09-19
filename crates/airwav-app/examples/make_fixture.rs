@@ -74,6 +74,7 @@ fn main() -> anyhow::Result<()> {
                 ring_capacity_bytes: config.ring_bytes() as u64,
                 ..Metrics::default()
             },
+            frames: vec![],
         };
         if block_number % 8 == 0 {
             writer.append_snapshot(&snapshot)?;

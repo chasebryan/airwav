@@ -230,7 +230,9 @@ export class Detector {
         peakDbfs: peak,
         snrDb: peak - noise,
         observations: 1,
-        state: "UNKNOWN",
+        state: "LIVE",
+        protocol: "UNKNOWN",
+        verified: false,
       });
     }
     this.tracked = this.tracked.filter(
@@ -255,6 +257,8 @@ export class Detector {
         neu.id = old.id;
         neu.firstSample = old.firstSample;
         neu.observations = old.observations + 1;
+        neu.protocol = old.protocol;
+        neu.verified = old.verified;
         used[bestJ] = true;
       } else {
         neu.id = this.nextId++;
@@ -262,14 +266,14 @@ export class Detector {
     }
     for (let j = 0; j < this.tracked.length; j++) {
       if (!used[j]) {
-        measured.push({ ...this.tracked[j]!, state: "FADING / UNKNOWN" });
+        measured.push({ ...this.tracked[j]!, state: "FADING" });
       }
     }
     measured.sort((a, b) => b.lastSample - a.lastSample || b.peakDbfs - a.peakDbfs);
     this.candidatesOmitted += Math.max(0, measured.length - ISLAND_BUDGET);
     measured.length = Math.min(measured.length, ISLAND_BUDGET);
     measured.sort((a, b) => a.centerHz - b.centerHz);
-    this.tracked = measured.map((m) => ({ ...m }));
+    this.tracked = measured;
     return measured;
   }
 }
