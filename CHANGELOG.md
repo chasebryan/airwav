@@ -2,10 +2,11 @@
 
 ## Unreleased
 
+- Doctor storage check fails closed when free space is below configured `minimum_free_bytes`, with clear guidance naming the minimum.
+- TUI header shows recording elapsed wall time (`● RECORDING M:SS` / `H:MM:SS`) via sticky `Ui::set_recording` start.
 - CI concurrency cancel-in-progress and 45-minute job timeout; `make check` mirrors the core CI gate set.
 - Safer sessions directory creation (no `expect` on the parent path).
 - CONTRIBUTING: short calm-PR hygiene (fmt before push, small PRs, re-land instead of WIP recovery).
-- README/roadmap clarity for Record elapsed and make check (elapsed UI wiring follows in a focused follow-up).
 
 - Native terminal Listen/Mute, AM/FM/NFM mode and volume controls for live IQ and recorded events, with independent bounded audio processing and visible player failures.
 - Terminal PCM levels, sent/clipped sample counts and explicit silence, missing-input and stalled-output diagnostics.
