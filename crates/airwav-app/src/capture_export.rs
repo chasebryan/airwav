@@ -91,7 +91,13 @@ pub(crate) fn save_view(ui: &mut Ui, path: &Path, width: u16, height: u16) -> Re
     file.sync_all()?;
     Ok(())
 }
-pub(crate) fn export(config: &Config, recording: &Path, output: &Path, width: u16, height: u16) -> Result<()> {
+pub(crate) fn export(
+    config: &Config,
+    recording: &Path,
+    output: &Path,
+    width: u16,
+    height: u16,
+) -> Result<()> {
     let reader = Reader::open(recording)?;
     let mut ui = Ui::new(&config.theme, true, reader.manifest.source.label(), true);
     let snapshot = reader
