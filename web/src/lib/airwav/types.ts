@@ -81,7 +81,7 @@ export interface SignalIsland {
   peakDbfs: number;
   snrDb: number;
   observations: number;
-  state: "UNKNOWN" | "FADING / UNKNOWN";
+  state: "LIVE" | "FADING" | "UNKNOWN" | "FADING / UNKNOWN";
 }
 
 export interface Spectrum {
@@ -145,4 +145,8 @@ export function formatSamples(n: number): string {
   if (n >= 1e6) return `${(n / 1e6).toFixed(2)} M`;
   if (n >= 1e3) return `${(n / 1e3).toFixed(1)} k`;
   return String(n);
+}
+
+export function activityOf(state: string): "LIVE" | "FADING" {
+  return state.startsWith("FADING") ? "FADING" : "LIVE";
 }

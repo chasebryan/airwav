@@ -1,9 +1,17 @@
-import { BANDS } from "@/lib/airwav/types";
+import { BANDS, activityOf } from "@/lib/airwav/types";
 import { formatKhz, formatMhz, formatSamples } from "@/lib/airwav/types";
 import { useAirwav } from "@/lib/airwav/store";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
+
+function dwell(first: number, last: number, rate: number): string {
+  if (!rate) return "—";
+  const seconds = (last - first) / rate;
+  if (seconds < 1) return "<1s";
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  return `${(seconds / 60).toFixed(0)}m`;
+}
 
 export function IslandList() {
   const snapshot = useAirwav((s) => s.snapshot);
@@ -11,7 +19,17 @@ export function IslandList() {
   const selectIndex = useAirwav((s) => s.selectIndex);
   const setOverlay = useAirwav((s) => s.setOverlay);
   const focused = useAirwav((s) => s.focused);
+  const setFocused = useAirwav((s) => s.setFocused);
+  const sortSnr = useAirwav((s) => s.sortSnr);
+  const hideFading = useAirwav((s) => s.hideFading);
+  const toggleSort = useAirwav((s) => s.toggleSort);
   const islands = snapshot?.islands ?? [];
+  const indexed = islands
+    .map((island, i) => ({ island, i }))
+    .filter(({ island }) => !hideFading || activityOf(island.state) !== "FADING");
+  if (sortSnr) {
+    indexed.sort((a, b) => b.island.snrDb - a.island.snrDb);
+  }
 
   return (
     <section
@@ -19,52 +37,64 @@ export function IslandList() {
         "flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border bg-panel",
         focused === 2 ? "border-accent" : "border-border",
       )}
+      onMouseDown={() => setFocused(2)}
     >
       <header className="flex items-center justify-between border-b border-border px-3 py-1.5">
-        <h2 className="font-mono text-[10px] tracking-[0.18em] text-muted uppercase">
-          03 / Signal Islands
+        <h2 className="font-mono text-xs tracking-[0.18em] text-muted uppercase">
+          03 / Islands
         </h2>
-        <span className="font-mono text-[10px] text-muted tabular-nums">
-          {islands.length} / 256
-        </span>
+        <button
+          type="button"
+          onClick={toggleSort}
+          className="font-mono text-xs text-muted tabular-nums hover:text-accent"
+        >
+          {islands.length} / 256 · {sortSnr ? "SNR" : "FREQ"}
+        </button>
       </header>
-      <div className="grid grid-cols-[18px_1fr_64px_88px] gap-x-2 px-3 py-1.5 font-mono text-[10px] tracking-wider text-muted uppercase">
+      <div className="grid grid-cols-[14px_minmax(0,1fr)_52px_48px_56px_40px] gap-x-2 px-3 py-1.5 font-mono text-xs tracking-wider text-muted uppercase">
         <span />
         <span>MHz</span>
+        <span className="text-right">kHz</span>
         <span className="text-right">SNR</span>
-        <span>State</span>
+        <span>Act</span>
+        <span>Prot</span>
       </div>
       <ul className="min-h-0 flex-1 overflow-auto px-1 pb-2">
-        {islands.length === 0 ? (
+        {indexed.length === 0 ? (
           <li className="px-3 py-4 font-mono text-xs text-muted">
             No activity above threshold
           </li>
         ) : (
-          islands.map((island, i) => (
-            <li key={island.id}>
-              <button
-                type="button"
-                onClick={() => selectIndex(i)}
-                onDoubleClick={() => {
-                  selectIndex(i);
-                  setOverlay("evidence");
-                }}
-                className={cn(
-                  "grid w-full grid-cols-[18px_1fr_64px_88px] items-center gap-x-2 rounded-sm px-2 py-2 text-left font-mono text-xs tabular-nums",
-                  i === selected
-                    ? "bg-accent/10 text-selected"
-                    : "text-unknown hover:bg-fg/5",
-                )}
-              >
-                <span className="text-accent">{i === selected ? "▌" : ""}</span>
-                <span>{formatMhz(island.centerHz)}</span>
-                <span className="text-right">{island.snrDb.toFixed(1)} dB</span>
-                <span>
-                  {island.state.startsWith("FADING") ? "FADING" : "UNKNOWN"}
-                </span>
-              </button>
-            </li>
-          ))
+          indexed.map(({ island, i }) => {
+            const act = activityOf(island.state);
+            return (
+              <li key={island.id}>
+                <button
+                  type="button"
+                  onClick={() => selectIndex(i)}
+                  onDoubleClick={() => {
+                    selectIndex(i);
+                    setOverlay("evidence");
+                  }}
+                  className={cn(
+                    "grid w-full grid-cols-[14px_minmax(0,1fr)_52px_48px_56px_40px] items-center gap-x-2 rounded-sm px-2 py-1.5 text-left font-mono text-xs tabular-nums min-h-10",
+                    i === selected
+                      ? "bg-accent/10 text-selected"
+                      : act === "FADING"
+                        ? "text-muted hover:bg-fg/5"
+                        : "text-live hover:bg-fg/5",
+                  )}
+                >
+                  <span className="text-accent">{i === selected ? "▌" : ""}</span>
+                  <span>{formatMhz(island.centerHz)}</span>
+                  <span className="text-right">{(island.bandwidthHz / 1000).toFixed(1)}</span>
+                  <span className="text-right">{island.snrDb.toFixed(1)}</span>
+                  <span className={act === "LIVE" ? "text-live" : "text-muted"}>{act}</span>
+                  <span className="text-unknown">UNK</span>
+                </button>
+              </li>
+            );
+          })
         )}
       </ul>
     </section>
@@ -74,12 +104,20 @@ export function IslandList() {
 export function EvidencePanel() {
   const snapshot = useAirwav((s) => s.snapshot);
   const selected = useAirwav((s) => s.selected);
+  const audioActive = useAirwav((s) => s.audioActive);
+  const lockedHz = useAirwav((s) => s.lockedHz);
   const island = snapshot?.islands[selected];
+  const act = island ? activityOf(island.state) : null;
+  const mismatch =
+    audioActive &&
+    lockedHz !== null &&
+    island &&
+    Math.round(lockedHz) !== Math.round(island.centerHz);
 
   return (
     <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-border bg-panel">
       <header className="border-b border-border px-3 py-1.5">
-        <h2 className="font-mono text-[10px] tracking-[0.18em] text-muted uppercase">
+        <h2 className="font-mono text-xs tracking-[0.18em] text-muted uppercase">
           04 / Evidence
         </h2>
       </header>
@@ -98,6 +136,12 @@ export function EvidencePanel() {
             <dd className="tabular-nums">{island.snrDb.toFixed(1)} dB</dd>
             <dt className="text-muted">Observations</dt>
             <dd className="tabular-nums">{island.observations}</dd>
+            <dt className="text-muted">Dwell</dt>
+            <dd className="tabular-nums">
+              {snapshot ? dwell(island.firstSample, island.lastSample, snapshot.receiver.sampleRate) : "—"}
+            </dd>
+            <dt className="text-muted">Activity</dt>
+            <dd className={act === "LIVE" ? "text-live" : "text-muted"}>{act}</dd>
             <dt className="text-muted">Protocol</dt>
             <dd className="text-unknown">UNKNOWN</dd>
             <dt className="text-muted">Confidence</dt>
@@ -112,9 +156,20 @@ export function EvidencePanel() {
             <p>No protocol has been established.</p>
           </div>
         )}
+        {mismatch && (
+          <p className="mt-3 text-[11px] text-unknown">
+            Audio is locked to {formatMhz(lockedHz ?? 0)} MHz, not this island. Mute,
+            then Listen.
+          </p>
+        )}
+        {audioActive && act === "FADING" && !mismatch && (
+          <p className="mt-3 text-[11px] text-unknown">
+            Listening to a FADING island — the carrier may already be gone.
+          </p>
+        )}
         <p className="mt-4 text-[11px] text-muted">
           No frame or identity decoded. SNR is a measurement, not protocol
-          confidence.
+          confidence. LIVE is current activity; FADING is hysteresis.
         </p>
       </div>
     </section>
@@ -162,20 +217,20 @@ function HelpBody() {
     <div className="space-y-3 font-mono text-xs leading-relaxed text-fg">
       <p className="text-accent">Observe first. Conclude second.</p>
       <ul className="space-y-1 text-muted">
-        <li>↑/↓ select · Enter / I evidence · D diagnostics · E events</li>
+        <li>↑/↓ select · click spectrum to pick the nearest island</li>
+        <li>Enter / I evidence · D diagnostics · E events · G log · S settings</li>
         <li>R recording · C pre/post-trigger IQ · Space pause presentation</li>
-        <li>Replay: 1–5 = 0.25× / 0.5× / 1× / 2× / 4× · . step · P replay</li>
-        <li>[ / ] jump events · +/− zoom · ←/→ pan · drag spectrum to zoom</li>
-        <li>L lock frequency · S settings · G log · T theme · F10 demo</li>
-        <li>F12 export · Esc closes overlays · Q reset session</li>
+        <li>A Listen/Mute · M AM/FM/NFM · 9/0 volume · L lock</li>
+        <li>O sort SNR/frequency · F hide fading · K peak hold</li>
+        <li>+/− zoom toward cursor · drag spectrum · Z zoom to island · Shift+wheel pan</li>
+        <li>T theme · F10 demo · F12 export · Esc close · Q reset (twice while recording)</li>
       </ul>
       <p>
-        A Signal Island is measured RF activity above a local noise estimate.
-        UNKNOWN means observed, but a protocol has not been established.
+        LIVE is current activity. FADING is one second of sample-clock hysteresis.
+        UNKNOWN is the protocol. SNR is a measurement, not identity confidence.
       </p>
       <p className="text-muted">
-        This browser build runs the DEMO FIXTURE generator and the same
-        measurement semantics as the native capture foundation. It is not a live
+        This browser build runs the DEMO FIXTURE generator. It is not a live
         RTL-SDR Blog V4 receiver, and it does not transmit.
       </p>
     </div>
@@ -185,10 +240,12 @@ function HelpBody() {
 function DiagnosticsBody() {
   const snap = useAirwav((s) => s.snapshot);
   const source = useAirwav((s) => s.source);
+  const audioActive = useAirwav((s) => s.audioActive);
   const m = snap?.metrics;
   const rows = m
     ? [
         ["Source", source],
+        ["Audio", audioActive ? "Listen locked (fixture)" : "off"],
         ["Received IQ samples", formatSamples(m.receivedSamples)],
         ["Application drops", `${m.queueDroppedSamples} samples`],
         ["USB sample loss", "unavailable in RF mode"],
@@ -254,6 +311,10 @@ function SettingsBody() {
   const setPeakHold = useAirwav((s) => s.setPeakHold);
   const theme = useAirwav((s) => s.theme);
   const setTheme = useAirwav((s) => s.setTheme);
+  const sortSnr = useAirwav((s) => s.sortSnr);
+  const toggleSort = useAirwav((s) => s.toggleSort);
+  const hideFading = useAirwav((s) => s.hideFading);
+  const toggleHideFading = useAirwav((s) => s.toggleHideFading);
 
   return (
     <div className="space-y-5 font-mono text-xs">
@@ -307,14 +368,28 @@ function SettingsBody() {
           ))}
         </div>
       </fieldset>
-      <label className="flex h-10 items-center gap-3">
-        <input
-          type="checkbox"
-          checked={peakHold}
-          onChange={(e) => setPeakHold(e.target.checked)}
-        />
-        Peak hold on spectrum
-      </label>
+      <div className="flex flex-col gap-2">
+        <label className="flex h-10 items-center gap-3">
+          <input
+            type="checkbox"
+            checked={peakHold}
+            onChange={(e) => setPeakHold(e.target.checked)}
+          />
+          Peak hold on spectrum (K)
+        </label>
+        <label className="flex h-10 items-center gap-3">
+          <input type="checkbox" checked={sortSnr} onChange={() => toggleSort()} />
+          Sort islands by SNR (O)
+        </label>
+        <label className="flex h-10 items-center gap-3">
+          <input
+            type="checkbox"
+            checked={hideFading}
+            onChange={() => toggleHideFading()}
+          />
+          Hide fading islands (F)
+        </label>
+      </div>
       <fieldset>
         <legend className="mb-2 text-muted uppercase tracking-wider">Theme</legend>
         <div className="flex flex-wrap gap-2">

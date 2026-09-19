@@ -230,7 +230,7 @@ export class Detector {
         peakDbfs: peak,
         snrDb: peak - noise,
         observations: 1,
-        state: "UNKNOWN",
+        state: "LIVE",
       });
     }
     this.tracked = this.tracked.filter(
@@ -262,7 +262,7 @@ export class Detector {
     }
     for (let j = 0; j < this.tracked.length; j++) {
       if (!used[j]) {
-        measured.push({ ...this.tracked[j]!, state: "FADING / UNKNOWN" });
+        measured.push({ ...this.tracked[j]!, state: "FADING" });
       }
     }
     measured.sort((a, b) => b.lastSample - a.lastSample || b.peakDbfs - a.peakDbfs);

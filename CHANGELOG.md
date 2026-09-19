@@ -7,6 +7,12 @@
 - CI concurrency cancel-in-progress and 45-minute job timeout; `make check` mirrors the core CI gate set.
 - Safer sessions directory creation (no `expect` on the parent path).
 - CONTRIBUTING: short calm-PR hygiene (fmt before push, small PRs, re-land instead of WIP recovery).
+- Terminal presentation overhaul: compact instrument chrome, power-mapped spectrum with dB scale, noise floor, peak hold, island cursors, cursor frequency/dBFS readout, theme-true waterfalls, and a denser island table (frequency, bandwidth, SNR, LIVE/FADING, protocol UNKNOWN).
+- Separate activity (LIVE / FADING hysteresis) from protocol (UNKNOWN). Old recordings that stored `UNKNOWN` on current islands still render as LIVE.
+- Click a spectrum bin to select the nearest island; wheel zoom keeps the cursor frequency; Z zooms to the selected island; Home/End/PgUp/PgDn move the list; O sorts by SNR; F hides fading islands; K toggles peak hold.
+- Recording elapsed time, IQ ring fill, audio lock vs selection mismatch, FADING-listen warning, fixture header no longer claims V4 hardware, USB loss shown when the metric exists, and Q requires a second press while a recording is active.
+- Click-drag a spectrum span to zoom that window. Keyboard +/- zoom toward the cursor frequency when the mouse is over the plot, not the view center.
+- Selecting an island outside the zoomed window pans the view so the measurement stays on screen.
 
 - Native terminal Listen/Mute, AM/FM/NFM mode and volume controls for live IQ and recorded events, with independent bounded audio processing and visible player failures.
 - Terminal PCM levels, sent/clipped sample counts and explicit silence, missing-input and stalled-output diagnostics.

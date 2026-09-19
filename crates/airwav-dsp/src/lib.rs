@@ -190,7 +190,7 @@ impl Detector {
                 peak_dbfs: peak,
                 snr_db: peak - local[(start + end - 1) / 2 / 128],
                 observations: 1,
-                state: "UNKNOWN".into(),
+                state: "LIVE".into(),
             });
         }
         self.tracked.retain(|old| {
@@ -225,7 +225,7 @@ impl Detector {
         for (j, old) in self.tracked.iter().enumerate() {
             if !used[j] {
                 let mut fading = old.clone();
-                fading.state = "FADING / UNKNOWN".into();
+                fading.state = "FADING".into();
                 measured.push(fading);
             }
         }
@@ -486,6 +486,27 @@ mod tests {
         moved.power_dbfs.fill(-100.);
         moved.first_sample += c.sample_rate as u64 + 1;
         assert!(d.update(&moved).is_empty());
+    }
+    #[test]
+    fn live_and_fading_are_distinct_activity_states() {
+        let c = ReceiverConfig::default();
+        let mut fft = SpectrumEngine::new(2048).unwrap();
+        let mut d = Detector::new(12., c.sample_rate);
+        let s = fft
+            .push(&tones(2048, &[(0.0625, 0.5)]), &c)
+            .unwrap()
+            .unwrap();
+        let live = d.update(&s);
+        assert!(
+            live.iter().any(|i| i.state == "LIVE" && i.snr_db > 20.),
+            "{live:?}"
+        );
+        let mut gone = s.clone();
+        gone.power_dbfs.fill(-100.);
+        gone.first_sample = 4096;
+        let fading = d.update(&gone);
+        assert!(fading.iter().any(|i| i.state == "FADING"), "{fading:?}");
+        assert!(fading.iter().all(|i| i.state != "UNKNOWN"));
     }
     #[test]
     fn seeded_noise_has_no_persistent_islands() {

@@ -12,6 +12,7 @@ export interface AirwavTheme {
   unknown: string;
   selected: string;
   danger: string;
+  live: string;
   waterfall: string[];
 }
 
@@ -28,6 +29,7 @@ const THEMES: Record<ThemeName, AirwavTheme> = {
     unknown: "#e6b562",
     selected: "#c5e8f7",
     danger: "#ee6582",
+    live: "#50d2bf",
     waterfall: [
       "#0a0e16",
       "#101d31",
@@ -51,6 +53,7 @@ const THEMES: Record<ThemeName, AirwavTheme> = {
     unknown: "#e6b562",
     selected: "#d6fff0",
     danger: "#ee6582",
+    live: "#4ad0a6",
     waterfall: [
       "#061015",
       "#07221c",
@@ -74,6 +77,7 @@ const THEMES: Record<ThemeName, AirwavTheme> = {
     unknown: "#a15c12",
     selected: "#083d68",
     danger: "#b4233c",
+    live: "#0b7a5a",
     waterfall: [
       "#dee6ef",
       "#c5d5e6",
@@ -97,6 +101,7 @@ const THEMES: Record<ThemeName, AirwavTheme> = {
     unknown: "#e6b562",
     selected: "#ffd8c2",
     danger: "#ee6582",
+    live: "#78c484",
     waterfall: [
       "#181015",
       "#2a1416",
@@ -120,6 +125,7 @@ const THEMES: Record<ThemeName, AirwavTheme> = {
     unknown: "#e6b562",
     selected: "#d7f6ff",
     danger: "#ee6582",
+    live: "#50d2bf",
     waterfall: [
       "#080c15",
       "#0c1c33",

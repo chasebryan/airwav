@@ -12,6 +12,7 @@ import {
   type ReceiverConfig,
   type Snapshot,
   type ThemeName,
+  activityOf,
 } from "./types";
 import { Detector, IqRing, SpectrumEngine } from "./dsp";
 import { generateIq, sceneFor, type Seed } from "./fixture";
@@ -90,8 +91,15 @@ export interface AirwavState {
   pan: number;
   hoverHz: number | null;
   hoverDbfs: number | null;
+  hoverFrac: number;
   dragStart: number | null;
   lockedHz: number | null;
+  audioActive: boolean;
+  audioMode: number;
+  audioVolume: number;
+  sortSnr: boolean;
+  hideFading: boolean;
+  quitArmedAt: number | null;
   snapshot: Snapshot | null;
   history: Float32Array[];
   peak: Float32Array | null;
@@ -117,11 +125,20 @@ export interface AirwavState {
   setOverlay: (v: OverlayView) => void;
   select: (delta: number) => void;
   selectIndex: (i: number) => void;
+  jumpVisible: (delta: number | "home" | "end") => void;
   setZoom: (z: number) => void;
   setPan: (p: number) => void;
-  setHover: (hz: number | null, dbfs: number | null) => void;
+  setHover: (hz: number | null, dbfs: number | null, frac?: number) => void;
   setDragStart: (frac: number | null) => void;
   applyDrag: (frac: number) => void;
+  selectNearest: (hz: number) => void;
+  zoomAt: (factor: number, frac: number) => void;
+  zoomToSelected: () => void;
+  toggleAudio: () => void;
+  cycleAudioMode: () => void;
+  setAudioVolume: (v: number) => void;
+  toggleSort: () => void;
+  toggleHideFading: () => void;
   toggleLock: () => void;
   toggleRecord: () => void;
   captureIq: () => void;
@@ -131,6 +148,9 @@ export interface AirwavState {
   setSpeed: (s: number) => void;
   stepReplay: () => void;
   jumpEvent: (dir: -1 | 1) => void;
+  setFocused: (n: number) => void;
+  cycleFocus: (dir?: 1 | -1) => void;
+  requestQuit: () => void;
   log: (level: LogEntry["level"], message: string) => void;
   resetSession: () => void;
 }
@@ -147,7 +167,8 @@ function receiver(band: BandId): ReceiverConfig {
 }
 
 function ringBytes(): number {
-  return 2_560_000 * 2 * 5;
+  // 5 s of this observer's IQ, not 5 s of a 2.56 MS/s USB stream.
+  return BLOCK_SAMPLES * 2 * SNAPSHOT_HZ * 5;
 }
 
 let raf = 0;
@@ -173,8 +194,15 @@ export const useAirwav = create<AirwavState>((set, get) => ({
   pan: 0.5,
   hoverHz: null,
   hoverDbfs: null,
+  hoverFrac: 0.5,
   dragStart: null,
   lockedHz: null,
+  audioActive: false,
+  audioMode: 0,
+  audioVolume: 50,
+  sortSnr: false,
+  hideFading: false,
+  quitArmedAt: null,
   snapshot: null,
   history: [],
   peak: null,
@@ -349,31 +377,137 @@ export const useAirwav = create<AirwavState>((set, get) => ({
   },
   setPeakHold: (v) => set({ peakHold: v }),
   setOverlay: (v) => set({ overlay: v }),
-  select: (delta) => {
-    const s = get();
-    const count = s.snapshot?.islands.length ?? 0;
-    if (!count) return;
-    const next = Math.max(0, Math.min(count - 1, s.selected + delta));
-    set({ selected: next });
-  },
+  select: (delta) => get().jumpVisible(delta),
   selectIndex: (i) => {
     const count = get().snapshot?.islands.length ?? 0;
     if (!count) return;
-    set({ selected: Math.max(0, Math.min(count - 1, i)) });
+    const selected = Math.max(0, Math.min(count - 1, i));
+    set({ selected });
+    panToIsland(set, get, selected);
+  },
+  jumpVisible: (delta) => {
+    const s = get();
+    const vis = visibleIndices(s);
+    if (!vis.length) return;
+    const cur = vis.indexOf(s.selected);
+    let next = cur < 0 ? 0 : cur;
+    if (delta === "home") next = 0;
+    else if (delta === "end") next = vis.length - 1;
+    else next = Math.max(0, Math.min(vis.length - 1, next + delta));
+    const selected = vis[next]!;
+    set({ selected });
+    panToIsland(set, get, selected);
   },
   setZoom: (z) => set({ zoom: Math.max(1, Math.min(16, z)) }),
   setPan: (p) => set({ pan: Math.max(0, Math.min(1, p)) }),
-  setHover: (hz, dbfs) => set({ hoverHz: hz, hoverDbfs: dbfs }),
+  setHover: (hz, dbfs, frac) =>
+    set({
+      hoverHz: hz,
+      hoverDbfs: dbfs,
+      hoverFrac: frac === undefined ? get().hoverFrac : Math.max(0, Math.min(1, frac)),
+    }),
   setDragStart: (frac) => set({ dragStart: frac }),
   applyDrag: (frac) => {
     const s = get();
     if (s.dragStart === null) return;
     const a = Math.min(s.dragStart, frac);
     const b = Math.max(s.dragStart, frac);
-    const width = Math.max(0.04, b - a);
-    const zoom = Math.min(16, 1 / width);
-    const pan = (a + b) / 2;
-    set({ zoom, pan, dragStart: null });
+    const n = s.snapshot?.spectrum.powerDbfs.length ?? 0;
+    if (!n) {
+      const width = Math.max(0.04, b - a);
+      set({ zoom: Math.min(16, 1 / width), pan: (a + b) / 2, dragStart: null });
+      return;
+    }
+    const view = Math.max(1, n / s.zoom);
+    const start = s.pan * n - view / 2;
+    const startBin = start + a * view;
+    const endBin = start + b * view;
+    const newWidth = Math.max(1, endBin - startBin);
+    set({
+      zoom: Math.max(1, Math.min(16, n / newWidth)),
+      pan: Math.max(0, Math.min(1, (startBin + endBin) / 2 / n)),
+      dragStart: null,
+    });
+  },
+  selectNearest: (hz) => {
+    const s = get();
+    const vis = visibleIndices(s);
+    const islands = s.snapshot?.islands ?? [];
+    let best = -1;
+    let dist = Infinity;
+    for (const i of vis) {
+      const d = Math.abs(islands[i]!.centerHz - hz);
+      if (d < dist) {
+        dist = d;
+        best = i;
+      }
+    }
+    if (best >= 0) set({ selected: best });
+  },
+  zoomAt: (factor, frac) => {
+    const s = get();
+    const n = s.snapshot?.spectrum.powerDbfs.length ?? 0;
+    const nextZoom = Math.max(1, Math.min(16, s.zoom * factor));
+    if (!n) {
+      set({ zoom: nextZoom });
+      return;
+    }
+    const width = Math.max(1, n / s.zoom);
+    const start = s.pan * n - width / 2;
+    const bin = start + frac * width;
+    const newWidth = Math.max(1, n / nextZoom);
+    const newStart = bin - frac * newWidth;
+    set({
+      zoom: nextZoom,
+      pan: Math.max(0, Math.min(1, (newStart + newWidth / 2) / n)),
+    });
+  },
+  zoomToSelected: () => {
+    const s = get();
+    const snap = s.snapshot;
+    const island = snap?.islands[s.selected];
+    if (!snap || !island) return;
+    const span = snap.spectrum.binHz * snap.spectrum.powerDbfs.length;
+    if (span <= 0) return;
+    const windowHz = Math.min(span, Math.max(island.bandwidthHz * 8, span / 16));
+    set({
+      zoom: Math.max(1, Math.min(16, span / windowHz)),
+      pan: Math.max(0, Math.min(1, (island.centerHz - snap.spectrum.startHz) / span)),
+    });
+  },
+  toggleAudio: () => {
+    const s = get();
+    if (s.audioActive) {
+      set({ audioActive: false });
+      get().log("info", "Audio muted.");
+      return;
+    }
+    const island = s.snapshot?.islands[s.selected];
+    const hz = island?.centerHz ?? s.snapshot?.receiver.centerHz ?? null;
+    const fading = island ? activityOf(island.state) === "FADING" : false;
+    set({ audioActive: true, lockedHz: hz });
+    get().log(
+      fading ? "warn" : "info",
+      fading
+        ? "Listen locked to a FADING island — the carrier may already be gone. Synthetic fixture audio."
+        : hz
+          ? `Listen locked ${(hz / 1e6).toFixed(6)} MHz · synthetic DEMO FIXTURE audio is not a V4 receiver.`
+          : "Listen · no island selected, using window center.",
+    );
+  },
+  cycleAudioMode: () => {
+    const next = (get().audioMode + 1) % 3;
+    set({ audioMode: next });
+    get().log("info", `Mode ${["AM", "FM", "NFM"][next]} (manual).`);
+  },
+  setAudioVolume: (v) => set({ audioVolume: Math.max(0, Math.min(100, v)) }),
+  toggleSort: () => {
+    set({ sortSnr: !get().sortSnr });
+    clampToVisible(set, get);
+  },
+  toggleHideFading: () => {
+    set({ hideFading: !get().hideFading });
+    clampToVisible(set, get);
   },
   toggleLock: () => {
     const s = get();
@@ -392,7 +526,7 @@ export const useAirwav = create<AirwavState>((set, get) => ({
     const s = get();
     if (s.replay) return;
     if (s.recording) {
-      set({ recording: false, recordStartedAt: null, captureActive: false });
+      set({ recording: false, recordStartedAt: null, captureActive: false, quitArmedAt: null });
       get().log("info", "Metadata recording stopped.");
       set({ status: "Recording finalized. Observation continues." });
     } else {
@@ -490,6 +624,24 @@ export const useAirwav = create<AirwavState>((set, get) => ({
     get().log("info", `Jumped to ${ev.id}`);
     set({ overlay: "events" });
   },
+  setFocused: (n) => set({ focused: ((n % 3) + 3) % 3 }),
+  cycleFocus: (dir = 1) => set({ focused: (get().focused + dir + 3) % 3 }),
+  requestQuit: () => {
+    const s = get();
+    if (s.recording) {
+      if (s.quitArmedAt && Date.now() - s.quitArmedAt < 3000) {
+        get().resetSession();
+        return;
+      }
+      set({
+        quitArmedAt: Date.now(),
+        status: "Recording is active · Q again within 3s to reset the session.",
+      });
+      get().log("warn", "Quit armed while recording");
+      return;
+    }
+    get().resetSession();
+  },
   log: (level, message) =>
     set((st) => ({ logs: [...st.logs.slice(-199), { t: Date.now(), level, message }] })),
   resetSession: () => {
@@ -510,6 +662,8 @@ export const useAirwav = create<AirwavState>((set, get) => ({
       pan: 0.5,
       lockedHz: null,
       overlay: null,
+      quitArmedAt: null,
+      audioActive: false,
       status: "Session reset. Fixture restarted.",
     });
     get().log("info", "Session reset. Terminal restored.");
@@ -518,6 +672,37 @@ export const useAirwav = create<AirwavState>((set, get) => ({
 
 type SetFn = (partial: Partial<AirwavState> | ((s: AirwavState) => Partial<AirwavState>)) => void;
 type GetFn = () => AirwavState;
+
+function visibleIndices(s: AirwavState): number[] {
+  const islands = s.snapshot?.islands ?? [];
+  const idx = islands
+    .map((_, i) => i)
+    .filter((i) => !s.hideFading || activityOf(islands[i]!.state) !== "FADING");
+  if (s.sortSnr) {
+    idx.sort((a, b) => islands[b]!.snrDb - islands[a]!.snrDb || islands[a]!.centerHz - islands[b]!.centerHz);
+  }
+  return idx;
+}
+
+function clampToVisible(set: SetFn, get: GetFn): void {
+  const s = get();
+  const vis = visibleIndices(s);
+  if (vis.length && !vis.includes(s.selected)) set({ selected: vis[0]! });
+}
+
+function panToIsland(set: SetFn, get: GetFn, index: number): void {
+  const s = get();
+  const snap = s.snapshot;
+  const island = snap?.islands[index];
+  if (!snap || !island) return;
+  const n = snap.spectrum.powerDbfs.length;
+  const width = Math.max(1, Math.min(n, Math.floor(n / s.zoom)));
+  const start = Math.max(0, Math.min(n - width, Math.floor(s.pan * n - width / 2)));
+  const bin = (island.centerHz - snap.spectrum.startHz) / snap.spectrum.binHz;
+  if (bin < start || bin >= start + width) {
+    set({ pan: Math.max(0, Math.min(1, bin / n)) });
+  }
+}
 
 function applySnapshot(
   set: SetFn,

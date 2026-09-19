@@ -38,7 +38,7 @@ npm run dev
 - Bounded pre/post-trigger IQ capture and indexed AWR recordings
 - Integrity hashes, crash-safe journals, offline replay
 - Terminal AM / mono FM / narrow FM listening, plus offline WAV export with evidence metadata
-- Native terminal: spectrum, measured waterfall, evidence, five themes, SVG export
+- Native terminal: spectrum with dB scale and peak hold, measured waterfall, LIVE/FADING islands vs UNKNOWN protocol, evidence, five themes, SVG export
 
 ## Architecture
 
@@ -76,7 +76,7 @@ airwav doctor
 airwav
 ```
 
-For Fedora/i3, follow [Linux setup](docs/linux.md). Use a truecolor terminal with mouse reporting. Minimum size: **70 × 22** cells.
+For Fedora/i3, follow [Linux setup](docs/linux.md). Use a truecolor terminal with mouse reporting. Minimum size: **60 × 16** cells (comfortable at 90 × 24).
 
 ```bash
 airwav --center-hz 136000000
@@ -100,20 +100,23 @@ airwav recover interrupted.awr --output recovered.awr
 | Input | Operation |
 | --- | --- |
 | ↑ / ↓, click signal | Select a Signal Island |
-| Enter / I, double/right click signal | Inspect measured evidence |
-| A, Listen/Mute button | Listen to the selected island (or receiver center); press again to mute |
-| M, Mode button | Cycle AM / FM / NFM; mode is selected manually |
-| 9 / 0, volume buttons | Lower / raise audio volume (starts at 50%) |
-| R, Record button | Start/stop metadata recording; header shows elapsed wall time |
-| C, Capture IQ button | Preserve available pre-trigger IQ and configured post-roll; recording must be active |
-| Space, Pause button | Pause presentation; live capture continues |
-| + / −, wheel over spectrum | Zoom |
+| Click spectrum | Select the nearest island to the cursor; drag a span to zoom |
+| Enter / I, double/right click | Inspect measured evidence |
+| A, Listen/Mute | Listen to the selected island (or receiver center); press again to mute |
+| M, Mode | Cycle AM / FM / NFM; mode is selected manually |
+| 9 / 0 | Lower / raise audio volume (starts at 50%) |
+| R, Record | Start/stop metadata recording (elapsed wall time is shown) |
+| C, Capture IQ | Preserve available pre-trigger IQ and configured post-roll; recording must be active |
+| Space, Pause | Pause presentation; live capture continues |
+| + / −, wheel over spectrum | Zoom toward the cursor |
 | ← / →, Shift+wheel | Pan |
-| D / E / ? | Diagnostics / event list / contextual help |
+| Z | Zoom the view to the selected island |
+| K / O / F | Peak hold / sort by SNR / hide fading islands |
+| D / E / G / S / ? | Diagnostics / events / log / settings / help |
 | T | Cycle Midnight, Radar, Arctic, Ember, Studio |
 | F10 | Presentation-only Demo Mode |
 | F12, Save button | SVG cell-buffer screenshot with JSON metadata |
-| Q, Quit button | Stop capture, finalize recording, restore terminal |
+| Q | Stop capture and finalize recording. Recording requires Q twice. |
 | Esc, Close button | Close overlay |
 | Replay 1 / 2 / 3 / 4 / 5 | 0.25× / 0.5× / 1× / 2× / 4× |
 | Replay . | Step one measurement |
