@@ -1,5 +1,12 @@
 use super::*;
-use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, layout::Rect};
+use crossterm::event::{Event, KeyCode, KeyModifiers, MouseButton, MouseEventKind};
+use ratatui::{
+    Terminal,
+    backend::TestBackend,
+    buffer::Buffer,
+    layout::Rect,
+    style::Color,
+};
 #[test]
 fn audio_health_is_visible_at_minimum_width_and_in_diagnostics() {
     let mut ui = Ui::new("Midnight", true, "DEMO FIXTURE", true);
