@@ -1,5 +1,9 @@
 # Development log
 
+## 2026-09-18 — simultaneous-channel audio validation
+
+Added an independent synthetic selectivity vector with a desired AM or broadcast-FM channel and an equally strong modulated adjacent channel present at the same time. The test measures preservation of the desired 1 kHz tone and leakage from the adjacent 2 kHz tone without enabling squelch. This closes a limitation of the earlier lone-neighbor test, where squelch could mute the whole block instead of measuring channel-filter leakage. It remains a deterministic software vector, not physical receiver or audible-speaker acceptance.
+
 ## 2026-09-18 — recorded AM/FM audio
 
 Priority: support both aviation-oriented AM voice and FM radio audio while retaining explicit measurement provenance and the physical receiver acceptance gate.
