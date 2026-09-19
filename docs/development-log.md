@@ -4,6 +4,8 @@
 
 Added an independent synthetic selectivity vector with a desired AM or broadcast-FM channel and an equally strong modulated adjacent channel present at the same time. The test measures preservation of the desired 1 kHz tone and leakage from the adjacent 2 kHz tone without enabling squelch. This closes a limitation of the earlier lone-neighbor test, where squelch could mute the whole block instead of measuring channel-filter leakage. It remains a deterministic software vector, not physical receiver or audible-speaker acceptance.
 
+Validation: [GitHub run 35408544742](https://github.com/chasebryan/airwav/actions/runs/35408544742) passed formatting, warning-free Clippy, workspace tests, both benchmarks and release/terminal checks for commit `09f17e74382947d8a60424fe48e969210a5a3c4c`. With squelch disabled, AM at 50 kHz spacing and FM at 300 kHz spacing retained more than 75% of the desired-only tone amplitude and kept adjacent-tone amplitude below 10% of the desired tone. These are passing bounds for the two synthetic cases, not a channel-mask specification. Local formatting passed; the local Rust test did not finish under severe host memory pressure. Next: cover closer spacings and unequal channel powers, then compare against independent RF recordings when available. Published as [PR #6](https://github.com/chasebryan/airwav/pull/6).
+
 ## 2026-09-18 — recorded AM/FM audio
 
 Priority: support both aviation-oriented AM voice and FM radio audio while retaining explicit measurement provenance and the physical receiver acceptance gate.
