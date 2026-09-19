@@ -7,10 +7,7 @@ use ratatui::{
     text::Line,
     widgets::{Block, BorderType, Borders},
 };
-use std::{
-    collections::VecDeque,
-    time::{Duration, Instant},
-};
+use std::{collections::VecDeque, time::Instant};
 
 #[derive(Clone)]
 pub struct Theme {
@@ -251,7 +248,6 @@ impl Ui {
             (false, false) => {}
         }
     }
-    include!("handle.inc");
     fn cycle_theme(&mut self) {
         let names = ["Midnight", "Radar", "Arctic", "Ember", "Studio"];
         let i = names
@@ -285,6 +281,7 @@ pub(crate) fn panel<'a>(title: impl Into<Line<'a>>, theme: &Theme, focused: bool
 
 mod chrome;
 mod draw;
+mod handle;
 mod panels;
 mod recording_label;
 mod svg;
